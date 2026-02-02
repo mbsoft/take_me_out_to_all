@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter, useParams } from "next/navigation";
 import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd";
-import { Trash2, Map, List } from "lucide-react";
+import { Trash2, Map, List, Check, MapPin } from "lucide-react";
 import dynamic from "next/dynamic";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -23,6 +23,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { TeamLogo, GameMatchup } from "@/components/team-logo";
+import { PlaceAutocomplete, type PlaceResult } from "@/components/place-autocomplete";
+import { GameDetailDialog } from "@/components/game-detail-dialog";
 
 const ItineraryMap = dynamic(() => import("@/components/itinerary-map"), {
   ssr: false,
@@ -51,6 +54,16 @@ interface Game {
   notes?: string;
 }
 
+interface Stopover {
+  id: string;
+  itinerary_id: string;
+  after_index: number;
+  label: string;
+  lat: number;
+  lon: number;
+  sort_order: number;
+}
+
 interface Itinerary {
   id: string;
   name: string;
@@ -64,6 +77,8 @@ interface Itinerary {
   end_lat?: number;
   end_lon?: number;
   games: Game[];
+  stopovers?: Stopover[];
+  segment_modes?: string[];
 }
 
 interface Suggestion {
@@ -109,23 +124,26 @@ export default function ItineraryBuilderPage() {
   const [viewMode, setViewMode] = useState<"list" | "map">("list");
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [stopoverAddingAfterIndex, setStopoverAddingAfterIndex] = useState<number | null>(null);
+  const [stopoverSearchValue, setStopoverSearchValue] = useState("");
+  const [selectedGame, setSelectedGame] = useState<Game | null>(null);
 
   useEffect(() => {
     if (status === "unauthenticated") router.push("/login");
   }, [status, router]);
 
-  const loadItinerary = useCallback(async () => {
+  const loadItinerary = useCallback(async (): Promise<Itinerary | undefined> => {
     const res = await fetch(`/api/itineraries/${id}`);
-    if (!res.ok) return;
+    if (!res.ok) return undefined;
     const data = await res.json();
     setItinerary(data);
-    
+
     // Set start date filter from itinerary's start_date if available
     if (data.start_date) {
-      // Convert DATE format (YYYY-MM-DD) to date input format
-      const dateStr = data.start_date.split('T')[0]; // Handle both DATE and TIMESTAMPTZ formats
+      const dateStr = data.start_date.split("T")[0];
       setStartDate(dateStr);
     }
+    return data;
   }, [id]);
 
   useEffect(() => {
@@ -164,6 +182,121 @@ export default function ItineraryBuilderPage() {
   async function removeGame(gameId: number) {
     await fetch(`/api/itineraries/${id}/games/${gameId}`, { method: "DELETE" });
     await loadItinerary();
+  }
+
+  async function addStopover(afterIndex: number, place: PlaceResult) {
+    const res = await fetch(`/api/itineraries/${id}/stopovers`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        after_index: afterIndex,
+        label: place.label,
+        lat: place.lat,
+        lon: place.lng,
+      }),
+    });
+    if (res.ok) {
+      setStopoverAddingAfterIndex(null);
+      setStopoverSearchValue("");
+      const loaded = await loadItinerary();
+      if (!loaded) return;
+      const base = loaded.segment_modes ?? [];
+      const insertIdx = (loaded.start_location ? 1 : 0) + afterIndex + 1;
+      const expanded = [...base.slice(0, insertIdx), "car", ...base.slice(insertIdx)];
+      await fetch(`/api/itineraries/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: loaded.name,
+          goal: loaded.goal,
+          travel_mode: loaded.travel_mode,
+          start_date: loaded.start_date ?? null,
+          start_location: loaded.start_location ?? null,
+          start_lat: loaded.start_lat ?? null,
+          start_lon: loaded.start_lon ?? null,
+          end_location: loaded.end_location ?? null,
+          end_lat: loaded.end_lat ?? null,
+          end_lon: loaded.end_lon ?? null,
+          segment_modes: expanded,
+        }),
+      });
+      await loadItinerary();
+    }
+  }
+
+  async function removeStopover(stopoverId: string) {
+    const stopover = (itinerary?.stopovers ?? []).find((s) => s.id === stopoverId);
+    if (!itinerary || !stopover) {
+      await fetch(`/api/itineraries/${id}/stopovers/${stopoverId}`, { method: "DELETE" });
+      await loadItinerary();
+      return;
+    }
+    const nodeIdx =
+      (itinerary.start_location ? 1 : 0) +
+      stopover.after_index +
+      (itinerary.stopovers ?? []).filter(
+        (s) => s.after_index === stopover.after_index && s.sort_order < stopover.sort_order
+      ).length;
+    await fetch(`/api/itineraries/${id}/stopovers/${stopoverId}`, { method: "DELETE" });
+    const data = await loadItinerary();
+    if (data) {
+      const base = data.segment_modes ?? [];
+      const removed = [...base.slice(0, nodeIdx), ...base.slice(nodeIdx + 1)];
+      await fetch(`/api/itineraries/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: data.name,
+          goal: data.goal,
+          travel_mode: data.travel_mode,
+          start_date: data.start_date ?? null,
+          start_location: data.start_location ?? null,
+          start_lat: data.start_lat ?? null,
+          start_lon: data.start_lon ?? null,
+          end_location: data.end_location ?? null,
+          end_lat: data.end_lat ?? null,
+          end_lon: data.end_lon ?? null,
+          segment_modes: removed,
+        }),
+      });
+      await loadItinerary();
+    }
+  }
+
+  function getNumSegments(it: Itinerary): number {
+    let n = (it.start_location ? 1 : 0) + it.games.length + (it.end_location ? 1 : 0);
+    (it.stopovers ?? []).forEach(() => n++);
+    return Math.max(0, n - 1);
+  }
+
+  async function updateSegmentMode(segmentIndex: number, mode: "car" | "air") {
+    if (!itinerary) return;
+    const numSegments = getNumSegments(itinerary);
+    const base = itinerary.segment_modes ?? [];
+    const next = base.length >= numSegments ? [...base.slice(0, numSegments)] : [...base];
+    while (next.length < numSegments) next.push("car");
+    next[segmentIndex] = mode;
+    setItinerary((prev) => (prev ? { ...prev, segment_modes: next } : null));
+    const res = await fetch(`/api/itineraries/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: itinerary.name,
+        goal: itinerary.goal,
+        travel_mode: itinerary.travel_mode,
+        start_date: itinerary.start_date ?? null,
+        start_location: itinerary.start_location ?? null,
+        start_lat: itinerary.start_lat ?? null,
+        start_lon: itinerary.start_lon ?? null,
+        end_location: itinerary.end_location ?? null,
+        end_lat: itinerary.end_lat ?? null,
+        end_lon: itinerary.end_lon ?? null,
+        segment_modes: next,
+      }),
+    });
+    if (!res.ok) {
+      loadItinerary();
+    }
   }
 
   async function onDragEnd(result: DropResult) {
@@ -205,6 +338,32 @@ export default function ItineraryBuilderPage() {
 
   const addedGameIds = new Set(itinerary.games.map((g) => g.game_id));
   const visitedParks = new Set(itinerary.games.map((g) => g.home_team));
+
+  // Build flat list of nodes: start?, game0, stopovers after 0, game1, stopovers after 1, ..., end?
+  type Node =
+    | { type: "start" }
+    | { type: "game"; game: Game; gameIndex: number }
+    | { type: "stopover"; stopover: Stopover; gameIndex: number }
+    | { type: "end" };
+  const nodes: Node[] = [];
+  if (itinerary.start_location) nodes.push({ type: "start" });
+  itinerary.games.forEach((g, gameIndex) => {
+    nodes.push({ type: "game", game: g, gameIndex });
+    (itinerary.stopovers ?? [])
+      .filter((s) => s.after_index === gameIndex)
+      .sort((a, b) => a.sort_order - b.sort_order)
+      .forEach((s) => nodes.push({ type: "stopover", stopover: s, gameIndex }));
+  });
+  if (itinerary.end_location) nodes.push({ type: "end" });
+
+  const numSegments = Math.max(0, nodes.length - 1);
+  const segmentModes = (() => {
+    const base = itinerary.segment_modes ?? [];
+    if (base.length >= numSegments) return base.slice(0, numSegments);
+    const next = [...base];
+    while (next.length < numSegments) next.push("car");
+    return next;
+  })();
 
   const targetTeams = teams.filter((t) => {
     if (itinerary.goal === "al") return t.league === "AL";
@@ -255,15 +414,17 @@ export default function ItineraryBuilderPage() {
             {targetTeams.map((t) => (
               <Badge
                 key={t.abbr}
-                variant={visitedParks.has(t.abbr) ? "default" : "outline"}
-                className={`text-xs ${
+                variant="outline"
+                className={`text-xs flex items-center gap-1 ${
                   visitedParks.has(t.abbr)
-                    ? "bg-green-600"
+                    ? "bg-muted/60 border-muted-foreground/20"
                     : addedGameIds.size > 0
                     ? "opacity-50"
                     : ""
                 }`}
               >
+                <TeamLogo abbr={t.abbr} size={16} />
+                {visitedParks.has(t.abbr) && <Check className="h-3.5 w-3.5 text-green-600" />}
                 {t.abbr}
               </Badge>
             ))}
@@ -283,7 +444,7 @@ export default function ItineraryBuilderPage() {
                 <Card key={s.game_id} className="min-w-[200px] flex-shrink-0">
                   <CardContent className="p-3 space-y-1">
                     <div className="font-medium text-sm">
-                      {s.away_team} @ {s.home_team}
+                      <GameMatchup awayTeam={s.away_team} homeTeam={s.home_team} size={18} />
                     </div>
                     <div className="text-xs text-muted-foreground">{s.stadium_name}</div>
                     <div className="text-xs text-muted-foreground">
@@ -314,6 +475,8 @@ export default function ItineraryBuilderPage() {
         <TabsContent value="map" className="mt-4">
           <ItineraryMap
             games={itinerary.games}
+            stopovers={itinerary.stopovers ?? []}
+            segmentModes={segmentModes}
             startLocation={
               itinerary.start_lat && itinerary.start_lon
                 ? { lat: itinerary.start_lat as unknown as number, lon: itinerary.start_lon as unknown as number }
@@ -333,7 +496,16 @@ export default function ItineraryBuilderPage() {
                 lon: t.lon!,
                 stadium_name: t.stadium_name || t.abbr,
               }))}
+            allBallparks={teams
+              .filter((t) => t.lat && t.lon)
+              .map((t) => ({
+                abbr: t.abbr,
+                lat: t.lat!,
+                lon: t.lon!,
+                stadium_name: t.stadium_name || t.abbr,
+              }))}
             visitedParks={visitedParks}
+            itineraryId={id}
           />
         </TabsContent>
 
@@ -399,7 +571,9 @@ export default function ItineraryBuilderPage() {
                     className="flex items-center justify-between p-2 rounded hover:bg-muted text-sm"
                   >
                     <div>
-                      <span className="font-medium">{g.away_team} @ {g.home_team}</span>
+                      <span className="font-medium inline-flex items-center gap-1.5">
+                        <GameMatchup awayTeam={g.away_team} homeTeam={g.home_team} size={18} />
+                      </span>
                       <span className="ml-2 text-xs text-muted-foreground">
                         {formatDate(g.date_time)} {formatTime(g.date_time)}
                         {isDayGame(g.date_time) && (
@@ -435,56 +609,152 @@ export default function ItineraryBuilderPage() {
                 {(provided) => (
                   <div ref={provided.innerRef} {...provided.droppableProps}>
                     <ScrollArea className="h-[500px]">
-                      {itinerary.games.length === 0 ? (
+                      {itinerary.games.length === 0 && !itinerary.start_location && !itinerary.end_location ? (
                         <p className="text-sm text-muted-foreground text-center py-12">
                           Add games from the left panel to build your itinerary
                         </p>
                       ) : (
                         <div className="space-y-1">
-                          {itinerary.games.map((g, index) => (
-                            <Draggable
-                              key={g.game_id}
-                              draggableId={String(g.game_id)}
-                              index={index}
-                            >
-                              {(prov, snap) => (
-                                <div
-                                  ref={prov.innerRef}
-                                  {...prov.draggableProps}
-                                  {...prov.dragHandleProps}
-                                  className={`flex items-center justify-between p-2 rounded border text-sm ${
-                                    snap.isDragging ? "bg-blue-50 border-blue-300" : "bg-white"
-                                  }`}
+                          {(() => {
+                            let segIdx = 0;
+                            const renderSegmentSelector = (segmentIndex: number) => (
+                              <div key={`seg-${segmentIndex}`} className="flex items-center justify-center gap-2 py-1">
+                                <div className="h-px flex-1 bg-border" />
+                                <select
+                                  className="rounded border border-input bg-background px-2 py-1 text-xs"
+                                  value={segmentModes[segmentIndex] ?? "car"}
+                                  onChange={(e) => updateSegmentMode(segmentIndex, e.target.value as "car" | "air")}
+                                  title="Travel mode to next stop"
                                 >
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-xs text-muted-foreground w-5">
-                                      {index + 1}
-                                    </span>
-                                    <div>
-                                      <div className="font-medium">
-                                        {g.away_team_name || g.away_team} @{" "}
-                                        {g.home_team_name || g.home_team}
-                                      </div>
-                                      <div className="text-xs text-muted-foreground">
-                                        {g.stadium_name} &middot; {g.city}, {g.state}
-                                      </div>
-                                      <div className="text-xs text-muted-foreground">
-                                        {formatDate(g.date_time)} {formatTime(g.date_time)}
-                                      </div>
+                                  <option value="car">Drive</option>
+                                  <option value="air">Fly</option>
+                                </select>
+                                <div className="h-px flex-1 bg-border" />
+                              </div>
+                            );
+                            return (
+                              <>
+                                {itinerary.start_location && (
+                                  <>
+                                    <div className="flex items-center gap-2 rounded border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
+                                      <span className="text-xs font-medium text-primary">Start</span>
+                                      <span className="text-muted-foreground">{itinerary.start_location}</span>
                                     </div>
+                                    {(itinerary.games.length > 0 || itinerary.end_location) && renderSegmentSelector(segIdx++)}
+                                  </>
+                                )}
+                                {itinerary.games.map((g, index) => {
+                                  const stopoversAfter = (itinerary.stopovers ?? []).filter((s) => s.after_index === index).sort((a, b) => a.sort_order - b.sort_order);
+                                  return (
+                                    <div key={g.game_id} className="space-y-1">
+                                      <Draggable draggableId={String(g.game_id)} index={index}>
+                                        {(prov, snap) => (
+                                          <div
+                                            ref={prov.innerRef}
+                                            {...prov.draggableProps}
+                                            {...prov.dragHandleProps}
+                                            className={`flex items-center justify-between p-2 rounded border text-sm cursor-pointer ${
+                                              snap.isDragging ? "bg-blue-50 border-blue-300" : "bg-white hover:bg-muted/50"
+                                            }`}
+                                            onClick={() => setSelectedGame(g)}
+                                          >
+                                            <div className="flex items-center gap-2">
+                                              <span className="text-xs text-muted-foreground w-5">{index + 1}</span>
+                                              <div>
+                                                <div className="font-medium">
+                                                  <GameMatchup
+                                                    awayTeam={g.away_team}
+                                                    homeTeam={g.home_team}
+                                                    awayName={g.away_team_name}
+                                                    homeName={g.home_team_name}
+                                                    size={20}
+                                                  />
+                                                </div>
+                                                <div className="text-xs text-muted-foreground">
+                                                  {g.stadium_name} &middot; {g.city}, {g.state}
+                                                </div>
+                                                <div className="text-xs text-muted-foreground">
+                                                  {formatDate(g.date_time)} {formatTime(g.date_time)}
+                                                </div>
+                                              </div>
+                                            </div>
+                                            <Button
+                                              size="sm"
+                                              variant="ghost"
+                                              className="text-red-500 hover:text-red-700"
+                                              onClick={(e) => { e.stopPropagation(); removeGame(g.game_id); }}
+                                            >
+                                              Remove
+                                            </Button>
+                                          </div>
+                                        )}
+                                      </Draggable>
+                                      {stopoversAfter.length > 0 && renderSegmentSelector(segIdx++)}
+                                      {stopoversAfter.map((s) => (
+                                        <div key={s.id} className="space-y-1">
+                                          <div className="flex items-center justify-between rounded border border-dashed border-muted bg-muted/30 px-3 py-2 text-sm">
+                                            <div className="flex items-center gap-2">
+                                              <MapPin className="h-4 w-4 text-muted-foreground" />
+                                              <span className="text-muted-foreground">{s.label}</span>
+                                            </div>
+                                            <Button
+                                              size="sm"
+                                              variant="ghost"
+                                              className="text-red-500 hover:text-red-700"
+                                              onClick={() => removeStopover(s.id)}
+                                            >
+                                              Remove
+                                            </Button>
+                                          </div>
+                                          {renderSegmentSelector(segIdx++)}
+                                        </div>
+                                      ))}
+                                      {stopoverAddingAfterIndex === index ? (
+                                        <div className="rounded border border-muted bg-muted/20 p-2">
+                                          <Label className="text-xs">Search for a stopover</Label>
+                                          <PlaceAutocomplete
+                                            value={stopoverSearchValue}
+                                            onChange={setStopoverSearchValue}
+                                            onSelect={(place) => addStopover(index, place)}
+                                            placeholder="City or address..."
+                                            className="mt-1"
+                                          />
+                                          <Button
+                                            size="sm"
+                                            variant="ghost"
+                                            className="mt-2"
+                                            onClick={() => {
+                                              setStopoverAddingAfterIndex(null);
+                                              setStopoverSearchValue("");
+                                            }}
+                                          >
+                                            Cancel
+                                          </Button>
+                                        </div>
+                                      ) : (
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          className="w-full border-dashed text-muted-foreground"
+                                          onClick={() => setStopoverAddingAfterIndex(index)}
+                                        >
+                                          <MapPin className="h-3.5 w-3.5 mr-1.5" />
+                                          Add stopover
+                                        </Button>
+                                      )}
+                                      {(index < itinerary.games.length - 1 || itinerary.end_location) && renderSegmentSelector(segIdx++)}
+                                    </div>
+                                  );
+                                })}
+                                {itinerary.end_location && (
+                                  <div className="flex items-center gap-2 rounded border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
+                                    <span className="text-xs font-medium text-primary">Finish</span>
+                                    <span className="text-muted-foreground">{itinerary.end_location}</span>
                                   </div>
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    className="text-red-500 hover:text-red-700"
-                                    onClick={() => removeGame(g.game_id)}
-                                  >
-                                    Remove
-                                  </Button>
-                                </div>
-                              )}
-                            </Draggable>
-                          ))}
+                                )}
+                              </>
+                            );
+                          })()}
                         </div>
                       )}
                       {provided.placeholder}
@@ -525,6 +795,12 @@ export default function ItineraryBuilderPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <GameDetailDialog
+        game={selectedGame}
+        open={selectedGame !== null}
+        onOpenChange={(open) => { if (!open) setSelectedGame(null); }}
+      />
     </div>
   );
 }

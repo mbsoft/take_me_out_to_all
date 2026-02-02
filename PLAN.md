@@ -1,4 +1,4 @@
-# Take Me Out To All — MVP Plan
+# Take Me Out to the Ballparks — MVP Plan
 
 ## Overview
 Full-stack web app to plan MLB ballpark-visit itineraries for the 2026 season. Users set start/end locations, choose a goal (all 30 parks, AL-only, NL-only), pick travel mode, and build an optimized schedule with drag-and-drop.
@@ -114,7 +114,7 @@ CREATE TABLE itinerary_games (
 - Simple greedy algorithm for MVP (not full TSP solver)
 
 ### 5. Itinerary Summary
-- List of games in order with dates, teams, stadiums
+- List of games in order with dates, teams, ballparks
 - Estimated travel distances between stops
 - Total trip stats (days, miles, parks visited)
 

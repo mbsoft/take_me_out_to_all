@@ -5,11 +5,11 @@ export default function Home() {
   return (
     <div className="flex flex-col items-center justify-center min-h-[70vh] text-center space-y-6">
       <h1 className="text-5xl font-bold tracking-tight">
-        Take Me Out To <span className="text-blue-600">All</span>
+        Take Me Out to the <span className="text-blue-600">Ballparks</span>
       </h1>
       <p className="text-xl text-muted-foreground max-w-lg">
         Plan your ultimate MLB ballpark road trip for the 2026 season.
-        Visit all 30 stadiums with an optimized itinerary.
+        Visit all 30 ballparks with an optimized itinerary.
       </p>
       <div className="flex gap-4">
         <Link href="/register">

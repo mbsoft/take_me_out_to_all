@@ -11,7 +11,7 @@ export function Navbar() {
     <header className="border-b bg-white">
       <div className="container mx-auto flex h-14 items-center justify-between px-4">
         <Link href="/" className="text-lg font-bold">
-          Take Me Out To All
+          Take Me Out to the Ballparks
         </Link>
         <nav className="flex items-center gap-4">
           {session ? (

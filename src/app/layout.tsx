@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Take Me Out To All",
+  title: "Take Me Out to the Ballparks",
   description: "Plan your MLB ballpark-visit itinerary for the 2026 season",
 };
 

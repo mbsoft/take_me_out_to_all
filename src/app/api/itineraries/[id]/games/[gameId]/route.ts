@@ -22,5 +22,11 @@ export async function DELETE(
     return NextResponse.json({ error: "Failed to remove game" }, { status: 500 });
   }
 
+  // Clear cached route geometry
+  await db
+    .from("itineraries")
+    .update({ route_geometry: null })
+    .eq("id", id);
+
   return NextResponse.json({ ok: true });
 }

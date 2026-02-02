@@ -27,7 +27,10 @@ export async function PUT(
 
   await db
     .from("itineraries")
-    .update({ updated_at: new Date().toISOString() })
+    .update({ 
+      updated_at: new Date().toISOString(),
+      route_geometry: null, // Clear cached route geometry
+    })
     .eq("id", id);
 
   return NextResponse.json({ ok: true });

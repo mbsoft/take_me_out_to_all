@@ -42,6 +42,8 @@ CREATE TABLE IF NOT EXISTS itineraries (
   end_location TEXT,
   end_lat DOUBLE PRECISION,
   end_lon DOUBLE PRECISION,
+  route_geometry TEXT,
+  segment_modes TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -52,4 +54,14 @@ CREATE TABLE IF NOT EXISTS itinerary_games (
   game_id INTEGER NOT NULL REFERENCES games(game_id),
   sort_order INTEGER NOT NULL,
   notes TEXT
+);
+
+CREATE TABLE IF NOT EXISTS itinerary_stopovers (
+  id TEXT PRIMARY KEY,
+  itinerary_id TEXT NOT NULL REFERENCES itineraries(id) ON DELETE CASCADE,
+  after_index INTEGER NOT NULL,
+  label TEXT NOT NULL,
+  lat DOUBLE PRECISION NOT NULL,
+  lon DOUBLE PRECISION NOT NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0
 );

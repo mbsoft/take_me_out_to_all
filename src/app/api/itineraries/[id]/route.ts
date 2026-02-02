@@ -36,6 +36,13 @@ export async function GET(
     return NextResponse.json({ error: "Failed to fetch games" }, { status: 500 });
   }
 
+  const { data: stopovers } = await db
+    .from("itinerary_stopovers")
+    .select("*")
+    .eq("itinerary_id", id)
+    .order("after_index", { ascending: true })
+    .order("sort_order", { ascending: true });
+
   // Fetch team data for each game
   const transformedGames = await Promise.all(
     (itineraryGames || []).map(async (ig: any) => {
@@ -68,7 +75,30 @@ export async function GET(
     })
   );
 
-  return NextResponse.json({ ...itinerary, games: transformedGames });
+  // Order by event date and time
+  transformedGames.sort((a: any, b: any) => {
+    const at = a.date_time ?? "";
+    const bt = b.date_time ?? "";
+    return at.localeCompare(bt);
+  });
+
+  let segment_modes: string[] = [];
+  if (itinerary.segment_modes) {
+    try {
+      segment_modes = Array.isArray(itinerary.segment_modes)
+        ? itinerary.segment_modes
+        : JSON.parse(itinerary.segment_modes as string) ?? [];
+    } catch {
+      segment_modes = [];
+    }
+  }
+
+  return NextResponse.json({
+    ...itinerary,
+    games: transformedGames,
+    stopovers: stopovers ?? [],
+    segment_modes,
+  });
 }
 
 export async function PUT(
@@ -82,21 +112,28 @@ export async function PUT(
   }
 
   const body = await req.json();
+  const segment_modes_json =
+    body.segment_modes != null
+      ? JSON.stringify(Array.isArray(body.segment_modes) ? body.segment_modes : [])
+      : undefined;
+  const update: Record<string, unknown> = {
+    name: body.name,
+    goal: body.goal,
+    travel_mode: body.travel_mode,
+    start_date: body.start_date || null,
+    start_location: body.start_location || null,
+    start_lat: body.start_lat || null,
+    start_lon: body.start_lon || null,
+    end_location: body.end_location || null,
+    end_lat: body.end_lat || null,
+    end_lon: body.end_lon || null,
+    route_geometry: null,
+    updated_at: new Date().toISOString(),
+  };
+  if (segment_modes_json !== undefined) update.segment_modes = segment_modes_json;
   const { error } = await db
     .from("itineraries")
-    .update({
-      name: body.name,
-      goal: body.goal,
-      travel_mode: body.travel_mode,
-      start_date: body.start_date || null,
-      start_location: body.start_location || null,
-      start_lat: body.start_lat || null,
-      start_lon: body.start_lon || null,
-      end_location: body.end_location || null,
-      end_lat: body.end_lat || null,
-      end_lon: body.end_lon || null,
-      updated_at: new Date().toISOString(),
-    })
+    .update(update)
     .eq("id", id)
     .eq("user_id", session.user.id);
 

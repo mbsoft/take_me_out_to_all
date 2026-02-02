@@ -7,11 +7,16 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PlaceAutocomplete, type PlaceResult } from "@/components/place-autocomplete";
 
 export default function NewItineraryPage() {
   const { status } = useSession();
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [startLocation, setStartLocation] = useState("");
+  const [startPlace, setStartPlace] = useState<PlaceResult | null>(null);
+  const [endLocation, setEndLocation] = useState("");
+  const [endPlace, setEndPlace] = useState<PlaceResult | null>(null);
 
   if (status === "unauthenticated") {
     router.push("/login");
@@ -31,8 +36,12 @@ export default function NewItineraryPage() {
           goal: form.get("goal"),
           travel_mode: form.get("travel_mode"),
           start_date: form.get("start_date"),
-          start_location: form.get("start_location") || null,
-          end_location: form.get("end_location") || null,
+          start_location: startLocation || null,
+          start_lat: startPlace?.lat ?? null,
+          start_lon: startPlace?.lng ?? null,
+          end_location: endLocation || null,
+          end_lat: endPlace?.lat ?? null,
+          end_lon: endPlace?.lng ?? null,
         }),
       });
       
@@ -111,11 +120,29 @@ export default function NewItineraryPage() {
             </div>
             <div>
               <Label htmlFor="start_location">Start City (optional)</Label>
-              <Input id="start_location" name="start_location" placeholder="New York, NY" />
+              <PlaceAutocomplete
+                id="start_location"
+                value={startLocation}
+                onChange={setStartLocation}
+                onSelect={(place) => {
+                  setStartLocation(place.label);
+                  setStartPlace(place);
+                }}
+                placeholder="New York, NY"
+              />
             </div>
             <div>
               <Label htmlFor="end_location">End City (optional)</Label>
-              <Input id="end_location" name="end_location" placeholder="Los Angeles, CA" />
+              <PlaceAutocomplete
+                id="end_location"
+                value={endLocation}
+                onChange={setEndLocation}
+                onSelect={(place) => {
+                  setEndLocation(place.label);
+                  setEndPlace(place);
+                }}
+                placeholder="Los Angeles, CA"
+              />
             </div>
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? "Creating..." : "Create Itinerary"}

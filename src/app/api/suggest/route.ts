@@ -26,36 +26,33 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  // Get already-added games
+  // Get already-added games (one query)
   const { data: itineraryGames } = await db
     .from("itinerary_games")
     .select("game_id, games(home_team, date_time)")
     .eq("itinerary_id", itineraryId)
     .order("sort_order", { ascending: true });
-  
-  // Fetch team data for each game
-  const added = await Promise.all(
-    (itineraryGames || []).map(async (ig: any) => {
-      const game = ig.games;
-      if (!game) return null;
-      
-      const { data: team } = await db
-        .from("teams")
-        .select("lat, lon")
-        .eq("abbr", game.home_team)
-        .single();
-      
-      return {
+
+  const addedHomeTeams = [...new Set((itineraryGames || []).map((ig: any) => ig.games?.home_team).filter(Boolean))] as string[];
+  const addedFiltered: Array<{ game_id: number; home_team: string; date_time: string; lat?: number; lon?: number }> = [];
+
+  if (addedHomeTeams.length > 0) {
+    const { data: teamsData } = await db.from("teams").select("abbr, lat, lon").in("abbr", addedHomeTeams);
+    const teamByAbbr = new Map((teamsData || []).map((t: any) => [t.abbr, t]));
+    for (const ig of itineraryGames || []) {
+      const raw = (ig as { games?: { home_team: string; date_time: string } | { home_team: string; date_time: string }[] }).games;
+      const game = Array.isArray(raw) ? raw[0] : raw;
+      if (!game) continue;
+      const team = teamByAbbr.get(game.home_team);
+      addedFiltered.push({
         game_id: ig.game_id,
         home_team: game.home_team,
         date_time: game.date_time,
         lat: team?.lat,
         lon: team?.lon,
-      };
-    })
-  );
-  
-  const addedFiltered = added.filter(Boolean);
+      });
+    }
+  }
 
   const visitedParks = new Set(addedFiltered.map((r: any) => r.home_team as string));
   const goalFilter = itinerary.goal === "al" ? "AL" : itinerary.goal === "nl" ? "NL" : null;
@@ -97,7 +94,31 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // Score unvisited parks by proximity and find next feasible game
+  // Global floor for game dates (schedule is already in DB)
+  const globalMinDate = addedFiltered.length === 0 && itinerary.start_date
+    ? new Date(itinerary.start_date).toISOString().slice(0, 19)
+    : lastDate.slice(0, 19);
+
+  // Single query: all upcoming games at unvisited parks (schedule in DB)
+  const unvisitedAbbrs = unvisitedTeams.map((t: any) => t.abbr);
+  const { data: upcomingGames } = await db
+    .from("games")
+    .select("*")
+    .in("home_team", unvisitedAbbrs)
+    .neq("status", "Canceled")
+    .gte("date_time", globalMinDate)
+    .order("date_time", { ascending: true });
+
+  const teamByAbbr = new Map((allTeams || []).map((t: any) => [t.abbr, t]));
+
+  // Group upcoming games by home_team (schedule already in DB, one query)
+  const gamesByTeam = new Map<string, (typeof upcomingGames)>();
+  for (const g of upcomingGames || []) {
+    const abbr = g.home_team as string;
+    if (!gamesByTeam.has(abbr)) gamesByTeam.set(abbr, []);
+    gamesByTeam.get(abbr)!.push(g);
+  }
+
   const travelMode = itinerary.travel_mode as "drive" | "fly" | "mixed";
   const suggestions: Array<{
     game_id: number;
@@ -114,56 +135,32 @@ export async function GET(req: NextRequest) {
     const dist = haversine(lastLat, lastLon, team.lat as number, team.lon as number);
     const travelHours = estimateTravelTime(dist, travelMode);
     const earliestArrival = new Date(new Date(lastDate).getTime() + travelHours * 3600_000);
-
-    // Find next home game for this team after earliest arrival
-    // Also ensure the game is on or after the itinerary's start_date (if no games added yet)
     let minDate = earliestArrival;
     if (addedFiltered.length === 0 && itinerary.start_date) {
-      // If no games added yet, ensure we don't suggest games before the start_date
       const startDate = new Date(itinerary.start_date);
       startDate.setHours(0, 0, 0, 0);
-      // Use the later of: start_date or earliestArrival (after travel time)
-      if (startDate > earliestArrival) {
-        minDate = startDate;
-      }
+      if (startDate > earliestArrival) minDate = startDate;
     }
-    
-    const { data: gamesData } = await db
-      .from("games")
-      .select("*")
-      .eq("home_team", team.abbr as string)
-      .neq("status", "Canceled")
-      .gte("date_time", minDate.toISOString().slice(0, 19))
-      .order("date_time", { ascending: true })
-      .limit(1);
 
-    if (gamesData && gamesData.length > 0) {
-      const gameData = gamesData[0];
-      
-      // Fetch team data
-      const { data: teamData } = await db
-        .from("teams")
-        .select("stadium_name, city")
-        .eq("abbr", gameData.home_team)
-        .single();
-      
-      const game = {
-        ...gameData,
-        stadium_name: teamData?.stadium_name,
-        city: teamData?.city,
-      };
-      const score = 1 / (dist + 1); // closer = higher score
-      suggestions.push({
-        game_id: game.game_id as number,
-        home_team: game.home_team as string,
-        away_team: game.away_team as string,
-        date_time: game.date_time as string,
-        stadium_name: game.stadium_name as string,
-        city: game.city as string,
-        distance: Math.round(dist),
-        score,
-      });
-    }
+    const teamGames = gamesByTeam.get(team.abbr as string);
+    if (!teamGames?.length) continue;
+    const gameData = teamGames.find((g) => new Date(g.date_time as string) >= minDate);
+    if (!gameData) continue;
+
+    const teamData = teamByAbbr.get(team.abbr as string);
+    const stadium_name = (teamData?.stadium_name as string) ?? "";
+    const city = (teamData?.city as string) ?? "";
+    const score = 1 / (dist + 1);
+    suggestions.push({
+      game_id: gameData.game_id as number,
+      home_team: gameData.home_team as string,
+      away_team: gameData.away_team as string,
+      date_time: gameData.date_time as string,
+      stadium_name,
+      city,
+      distance: Math.round(dist),
+      score,
+    });
   }
 
   suggestions.sort((a, b) => b.score - a.score);

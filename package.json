@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "seed": "npx tsx scripts/seed.ts"
+    "seed": "npx tsx scripts/seed.ts",
+    "download-mlb-logos": "npx tsx scripts/download-mlb-logos.ts"
   },
   "dependencies": {
     "@hello-pangea/dnd": "^18.0.1",
@@ -31,6 +32,7 @@
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "tailwind-merge": "^3.4.0",
+    "three": "^0.170.0",
     "uuid": "^13.0.0"
   },
   "devDependencies": {
