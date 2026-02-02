@@ -22,7 +22,7 @@ export function StadiumViewer({ abbr, stadiumName, className = "" }: StadiumView
     let renderer: import("three").WebGLRenderer | null = null;
     let scene: import("three").Scene | null = null;
     let camera: import("three").PerspectiveCamera | null = null;
-    let controls: { dispose: () => void; update: () => boolean } | null = null;
+    let controls: import("three/examples/jsm/controls/OrbitControls.js").OrbitControls | null = null;
     let model: import("three").Group | null = null;
     let frameId: number | null = null;
 
@@ -75,6 +75,7 @@ export function StadiumViewer({ abbr, stadiumName, className = "" }: StadiumView
       canvas.style.width = width + "px";
       canvas.style.height = height + "px";
       canvas.style.touchAction = "none";
+      if (!container) return;
       container.appendChild(canvas);
 
       controls = new OrbitControls(camera, canvas);
@@ -112,10 +113,10 @@ export function StadiumViewer({ abbr, stadiumName, className = "" }: StadiumView
           setStatus("ready");
         },
         undefined,
-        (err) => {
+        (err: unknown) => {
           console.error("Stadium load error:", err);
           setStatus("error");
-          setErrorMessage(err?.message || "Failed to load stadium model");
+          setErrorMessage(err instanceof Error ? err.message : "Failed to load stadium model");
         }
       );
 

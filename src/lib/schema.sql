@@ -56,6 +56,15 @@ CREATE TABLE IF NOT EXISTS itinerary_games (
   notes TEXT
 );
 
+CREATE TABLE IF NOT EXISTS itinerary_game_photos (
+  id TEXT PRIMARY KEY,
+  itinerary_id TEXT NOT NULL REFERENCES itineraries(id) ON DELETE CASCADE,
+  game_id INTEGER NOT NULL REFERENCES games(game_id),
+  storage_path TEXT NOT NULL,
+  file_name TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS itinerary_stopovers (
   id TEXT PRIMARY KEY,
   itinerary_id TEXT NOT NULL REFERENCES itineraries(id) ON DELETE CASCADE,

@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter, useParams } from "next/navigation";
 import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd";
-import { Trash2, Map, List, Check, MapPin } from "lucide-react";
+import { Trash2, Map, List, Check, MapPin, Car, Plane } from "lucide-react";
 import dynamic from "next/dynamic";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,7 +25,7 @@ import {
 } from "@/components/ui/dialog";
 import { TeamLogo, GameMatchup } from "@/components/team-logo";
 import { PlaceAutocomplete, type PlaceResult } from "@/components/place-autocomplete";
-import { GameDetailDialog } from "@/components/game-detail-dialog";
+import { GameDetailPanel } from "@/components/game-detail-panel";
 
 const ItineraryMap = dynamic(() => import("@/components/itinerary-map"), {
   ssr: false,
@@ -91,14 +91,47 @@ interface Suggestion {
   distance: number;
 }
 
-function formatDate(dt: string) {
-  const d = new Date(dt);
-  return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+/** MLB team timezone mapping */
+const TEAM_TIMEZONES: Record<string, string> = {
+  ARI: "America/Phoenix", ATH: "America/Los_Angeles", ATL: "America/New_York",
+  BAL: "America/New_York", BOS: "America/New_York", CHC: "America/Chicago",
+  CHW: "America/Chicago", CIN: "America/New_York", CLE: "America/New_York",
+  COL: "America/Denver", DET: "America/New_York", HOU: "America/Chicago",
+  KC: "America/Chicago", LAA: "America/Los_Angeles", LAD: "America/Los_Angeles",
+  MIA: "America/New_York", MIL: "America/Chicago", MIN: "America/Chicago",
+  NYM: "America/New_York", NYY: "America/New_York", PHI: "America/New_York",
+  PIT: "America/New_York", SD: "America/Los_Angeles", SEA: "America/Los_Angeles",
+  SF: "America/Los_Angeles", STL: "America/Chicago", TB: "America/New_York",
+  TEX: "America/Chicago", TOR: "America/New_York", WSH: "America/New_York",
+};
+
+function formatDate(dt: string, homeTeam: string) {
+  try {
+    const date = new Date(dt);
+    const timezone = TEAM_TIMEZONES[homeTeam] || "America/New_York";
+    return date.toLocaleDateString("en-US", {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      timeZone: timezone,
+    });
+  } catch {
+    return "";
+  }
 }
 
-function formatTime(dt: string) {
-  const d = new Date(dt);
-  return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+function formatTime(dt: string, homeTeam: string) {
+  try {
+    const date = new Date(dt);
+    const timezone = TEAM_TIMEZONES[homeTeam] || "America/New_York";
+    return date.toLocaleTimeString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      timeZone: timezone,
+    });
+  } catch {
+    return "";
+  }
 }
 
 function isDayGame(dt: string) {
@@ -432,35 +465,6 @@ export default function ItineraryBuilderPage() {
         </CardContent>
       </Card>
 
-      {/* Suggestions */}
-      {suggestions.length > 0 && (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Suggested Next Games</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex gap-2 overflow-x-auto pb-2">
-              {suggestions.map((s) => (
-                <Card key={s.game_id} className="min-w-[200px] flex-shrink-0">
-                  <CardContent className="p-3 space-y-1">
-                    <div className="font-medium text-sm">
-                      <GameMatchup awayTeam={s.away_team} homeTeam={s.home_team} size={18} />
-                    </div>
-                    <div className="text-xs text-muted-foreground">{s.stadium_name}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {formatDate(s.date_time)} &middot; {s.distance} mi
-                    </div>
-                    <Button size="sm" className="w-full mt-1" onClick={() => addGame(s.game_id)}>
-                      Add
-                    </Button>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
       {/* View toggle: List vs Map */}
       <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as "list" | "map")}>
         <TabsList>
@@ -510,6 +514,34 @@ export default function ItineraryBuilderPage() {
         </TabsContent>
 
         <TabsContent value="list" className="mt-4">
+      {/* Suggestions */}
+      {suggestions.length > 0 && (
+        <Card className="mb-6">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Suggested Next Games</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex gap-2 overflow-x-auto pb-2">
+              {suggestions.map((s) => (
+                <Card key={s.game_id} className="min-w-[200px] flex-shrink-0">
+                  <CardContent className="p-3 space-y-1">
+                    <div className="font-medium text-sm">
+                      <GameMatchup awayTeam={s.away_team} homeTeam={s.home_team} size={18} />
+                    </div>
+                    <div className="text-xs text-muted-foreground">{s.stadium_name}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {formatDate(s.date_time, s.home_team)} &middot; {s.distance} mi
+                    </div>
+                    <Button size="sm" className="w-full mt-1" onClick={() => addGame(s.game_id)}>
+                      Add
+                    </Button>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
       <div className="grid md:grid-cols-2 gap-6">
         {/* Left: Available games */}
         <Card>
@@ -575,7 +607,7 @@ export default function ItineraryBuilderPage() {
                         <GameMatchup awayTeam={g.away_team} homeTeam={g.home_team} size={18} />
                       </span>
                       <span className="ml-2 text-xs text-muted-foreground">
-                        {formatDate(g.date_time)} {formatTime(g.date_time)}
+                        {formatDate(g.date_time, g.home_team)} {formatTime(g.date_time, g.home_team)}
                         {isDayGame(g.date_time) && (
                           <Badge variant="outline" className="ml-1 text-[10px] py-0">DAY</Badge>
                         )}
@@ -617,21 +649,43 @@ export default function ItineraryBuilderPage() {
                         <div className="space-y-1">
                           {(() => {
                             let segIdx = 0;
-                            const renderSegmentSelector = (segmentIndex: number) => (
-                              <div key={`seg-${segmentIndex}`} className="flex items-center justify-center gap-2 py-1">
-                                <div className="h-px flex-1 bg-border" />
-                                <select
-                                  className="rounded border border-input bg-background px-2 py-1 text-xs"
-                                  value={segmentModes[segmentIndex] ?? "car"}
-                                  onChange={(e) => updateSegmentMode(segmentIndex, e.target.value as "car" | "air")}
-                                  title="Travel mode to next stop"
-                                >
-                                  <option value="car">Drive</option>
-                                  <option value="air">Fly</option>
-                                </select>
-                                <div className="h-px flex-1 bg-border" />
-                              </div>
-                            );
+                            const renderSegmentSelector = (segmentIndex: number) => {
+                              const mode = segmentModes[segmentIndex] ?? "car";
+                              return (
+                                <div key={`seg-${segmentIndex}`} className="flex items-center justify-center gap-2 py-1">
+                                  <div className="h-px flex-1 bg-border" />
+                                  <div className="inline-flex rounded-md border border-input bg-background">
+                                    <button
+                                      type="button"
+                                      onClick={() => updateSegmentMode(segmentIndex, "car")}
+                                      className={`flex items-center gap-1 px-2 py-1 text-xs transition-colors ${
+                                        mode === "car"
+                                          ? "bg-primary text-primary-foreground"
+                                          : "hover:bg-muted"
+                                      }`}
+                                      title="Drive"
+                                    >
+                                      <Car className="h-3 w-3" />
+                                      <span>Drive</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => updateSegmentMode(segmentIndex, "air")}
+                                      className={`flex items-center gap-1 px-2 py-1 text-xs transition-colors border-l border-input ${
+                                        mode === "air"
+                                          ? "bg-primary text-primary-foreground"
+                                          : "hover:bg-muted"
+                                      }`}
+                                      title="Fly"
+                                    >
+                                      <Plane className="h-3 w-3" />
+                                      <span>Fly</span>
+                                    </button>
+                                  </div>
+                                  <div className="h-px flex-1 bg-border" />
+                                </div>
+                              );
+                            };
                             return (
                               <>
                                 {itinerary.start_location && (
@@ -654,7 +708,7 @@ export default function ItineraryBuilderPage() {
                                             {...prov.draggableProps}
                                             {...prov.dragHandleProps}
                                             className={`flex items-center justify-between p-2 rounded border text-sm cursor-pointer ${
-                                              snap.isDragging ? "bg-blue-50 border-blue-300" : "bg-white hover:bg-muted/50"
+                                              snap.isDragging ? "bg-accent/20 border-accent" : "bg-card hover:bg-muted/50"
                                             }`}
                                             onClick={() => setSelectedGame(g)}
                                           >
@@ -674,7 +728,7 @@ export default function ItineraryBuilderPage() {
                                                   {g.stadium_name} &middot; {g.city}, {g.state}
                                                 </div>
                                                 <div className="text-xs text-muted-foreground">
-                                                  {formatDate(g.date_time)} {formatTime(g.date_time)}
+                                                  {formatDate(g.date_time, g.home_team)} {formatTime(g.date_time, g.home_team)}
                                                 </div>
                                               </div>
                                             </div>
@@ -796,10 +850,17 @@ export default function ItineraryBuilderPage() {
         </DialogContent>
       </Dialog>
 
-      <GameDetailDialog
+      <GameDetailPanel
         game={selectedGame}
         open={selectedGame !== null}
-        onOpenChange={(open) => { if (!open) setSelectedGame(null); }}
+        onClose={() => setSelectedGame(null)}
+        itineraryId={id}
+        onNotesChange={(gameId, notes) => {
+          setItinerary((prev) => prev ? {
+            ...prev,
+            games: prev.games.map((g) => g.game_id === gameId ? { ...g, notes } : g),
+          } : prev);
+        }}
       />
     </div>
   );

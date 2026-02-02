@@ -44,14 +44,48 @@ interface GameDetailDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
-function formatDate(dt: string) {
-  const d = new Date(dt);
-  return d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+/** MLB team timezone mapping */
+const TEAM_TIMEZONES: Record<string, string> = {
+  ARI: "America/Phoenix", ATH: "America/Los_Angeles", ATL: "America/New_York",
+  BAL: "America/New_York", BOS: "America/New_York", CHC: "America/Chicago",
+  CHW: "America/Chicago", CIN: "America/New_York", CLE: "America/New_York",
+  COL: "America/Denver", DET: "America/New_York", HOU: "America/Chicago",
+  KC: "America/Chicago", LAA: "America/Los_Angeles", LAD: "America/Los_Angeles",
+  MIA: "America/New_York", MIL: "America/Chicago", MIN: "America/Chicago",
+  NYM: "America/New_York", NYY: "America/New_York", PHI: "America/New_York",
+  PIT: "America/New_York", SD: "America/Los_Angeles", SEA: "America/Los_Angeles",
+  SF: "America/Los_Angeles", STL: "America/Chicago", TB: "America/New_York",
+  TEX: "America/Chicago", TOR: "America/New_York", WSH: "America/New_York",
+};
+
+function formatDate(dt: string, homeTeam: string) {
+  try {
+    const date = new Date(dt);
+    const timezone = TEAM_TIMEZONES[homeTeam] || "America/New_York";
+    return date.toLocaleDateString("en-US", {
+      weekday: "long",
+      month: "long",
+      day: "numeric",
+      year: "numeric",
+      timeZone: timezone,
+    });
+  } catch {
+    return "";
+  }
 }
 
-function formatTime(dt: string) {
-  const d = new Date(dt);
-  return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+function formatTime(dt: string, homeTeam: string) {
+  try {
+    const date = new Date(dt);
+    const timezone = TEAM_TIMEZONES[homeTeam] || "America/New_York";
+    return date.toLocaleTimeString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      timeZone: timezone,
+    });
+  } catch {
+    return "";
+  }
 }
 
 function formatPrice(price: number | null) {
@@ -121,7 +155,7 @@ export function GameDetailDialog({ game, open, onOpenChange }: GameDetailDialogP
               {game.stadium_name} &middot; {game.city}, {game.state}
             </div>
             <div className="text-sm text-muted-foreground">
-              {formatDate(game.date_time)} &middot; {formatTime(game.date_time)}
+              {formatDate(game.date_time, game.home_team)} &middot; {formatTime(game.date_time, game.home_team)}
             </div>
           </div>
 

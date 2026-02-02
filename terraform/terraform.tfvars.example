@@ -1,0 +1,25 @@
+# GCP Project Configuration
+project_id = "your-gcp-project-id"
+region     = "us-central1"
+
+# Application Configuration
+app_name    = "mlb-itinerary"
+environment = "prod"
+
+# Container Image (update after building and pushing to Artifact Registry)
+container_image = "us-central1-docker.pkg.dev/your-gcp-project-id/mlb-itinerary-images/mlb-itinerary-prod:latest"
+
+# Supabase Configuration
+supabase_url              = "https://your-project.supabase.co"
+supabase_service_role_key = "your-supabase-service-role-key"
+
+# NextAuth Configuration
+nextauth_secret = "generate-a-random-64-character-string-for-production"
+
+# External API Keys
+seatgeek_client_id     = "your-seatgeek-client-id"
+seatgeek_client_secret = "your-seatgeek-client-secret"
+nbai_api_key           = "your-nextbillion-ai-api-key"
+
+# Optional: Custom Domain
+# domain_name = "example.com"

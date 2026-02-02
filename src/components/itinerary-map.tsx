@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { getTeamLogoPath } from "@/lib/team-logos";
+import { ChevronLeft, ChevronRight, Car, Plane, MapPin } from "lucide-react";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Dialog,
   DialogContent,
@@ -9,6 +11,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { StadiumViewer } from "@/components/stadium-viewer";
+import type maplibregl from "maplibre-gl";
 
 interface MapGame {
   game_id: number;
@@ -45,6 +48,40 @@ interface ItineraryMapProps {
 /** Ballparks that do not have a 3D model; do not open stadium viewer for these. (ATH = Athletics) */
 const BALLPARKS_WITHOUT_3D_MODEL = new Set(["ATH"]);
 
+/** MLB team timezone offsets from UTC (standard time, adjust for DST) */
+const TEAM_TIMEZONES: Record<string, string> = {
+  ARI: "America/Phoenix",      // Arizona (no DST)
+  ATH: "America/Los_Angeles",  // Oakland
+  ATL: "America/New_York",     // Atlanta
+  BAL: "America/New_York",     // Baltimore
+  BOS: "America/New_York",     // Boston
+  CHC: "America/Chicago",      // Chicago Cubs
+  CHW: "America/Chicago",      // Chicago White Sox
+  CIN: "America/New_York",     // Cincinnati
+  CLE: "America/New_York",     // Cleveland
+  COL: "America/Denver",       // Colorado
+  DET: "America/New_York",     // Detroit
+  HOU: "America/Chicago",      // Houston
+  KC: "America/Chicago",       // Kansas City
+  LAA: "America/Los_Angeles",  // LA Angels
+  LAD: "America/Los_Angeles",  // LA Dodgers
+  MIA: "America/New_York",     // Miami
+  MIL: "America/Chicago",      // Milwaukee
+  MIN: "America/Chicago",      // Minnesota
+  NYM: "America/New_York",     // NY Mets
+  NYY: "America/New_York",     // NY Yankees
+  PHI: "America/New_York",     // Philadelphia
+  PIT: "America/New_York",     // Pittsburgh
+  SD: "America/Los_Angeles",   // San Diego
+  SEA: "America/Los_Angeles",  // Seattle
+  SF: "America/Los_Angeles",   // San Francisco
+  STL: "America/Chicago",      // St. Louis
+  TB: "America/New_York",      // Tampa Bay
+  TEX: "America/Chicago",      // Texas
+  TOR: "America/New_York",     // Toronto
+  WSH: "America/New_York",     // Washington
+};
+
 /** Bearing in degrees from point A to B (0 = north, 90 = east). Coords are [lng, lat]. */
 function bearingDeg(a: [number, number], b: [number, number]): number {
   const [lng1, lat1] = a;
@@ -58,6 +95,39 @@ function bearingDeg(a: [number, number], b: [number, number]): number {
     Math.sin(lat1Rad) * Math.cos(lat2Rad) * Math.cos(dLon);
   let deg = (Math.atan2(y, x) * 180) / Math.PI;
   return (deg + 360) % 360;
+}
+
+/** Format a date-time string in the venue's local timezone */
+function formatLocalTime(dateTimeStr: string, homeTeam: string): string {
+  try {
+    const date = new Date(dateTimeStr);
+    const timezone = TEAM_TIMEZONES[homeTeam] || "America/New_York";
+
+    return date.toLocaleTimeString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      timeZone: timezone,
+    });
+  } catch {
+    return "";
+  }
+}
+
+/** Format a date string in the venue's local timezone */
+function formatLocalDate(dateTimeStr: string, homeTeam: string): string {
+  try {
+    const date = new Date(dateTimeStr);
+    const timezone = TEAM_TIMEZONES[homeTeam] || "America/New_York";
+
+    return date.toLocaleDateString("en-US", {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      timeZone: timezone,
+    });
+  } catch {
+    return "";
+  }
 }
 
 /** Create a DOM element with an airplane icon (SVG) for use as a map marker. */
@@ -118,9 +188,9 @@ export default function ItineraryMap({
   itineraryId,
 }: ItineraryMapProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<any>(null);
-  const markersRef = useRef<any[]>([]);
-  const airplaneMarkersRef = useRef<any[]>([]);
+  const mapRef = useRef<{ map: maplibregl.Map } | null>(null);
+  const markersRef = useRef<maplibregl.Marker[]>([]);
+  const airplaneMarkersRef = useRef<maplibregl.Marker[]>([]);
   const [mapReady, setMapReady] = useState(false);
   const [routeInfo, setRouteInfo] = useState<{
     totalDistance: number;
@@ -134,6 +204,7 @@ export default function ItineraryMap({
     abbr: string;
     stadium_name: string;
   } | null>(null);
+  const [panelOpen, setPanelOpen] = useState(true);
 
   // Load SDK, init map, and signal ready — all in one effect to avoid race conditions
   useEffect(() => {
@@ -142,34 +213,33 @@ export default function ItineraryMap({
     async function init() {
       try {
         // Load CSS
-        if (!document.getElementById("nbmap-css")) {
+        if (!document.getElementById("maplibre-css")) {
           const link = document.createElement("link");
-          link.id = "nbmap-css";
+          link.id = "maplibre-css";
           link.rel = "stylesheet";
-          link.href = "https://maps-gl.nextbillion.io/maps/v2/api/css";
+          link.href = "https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css";
           document.head.appendChild(link);
         }
 
-        const nb = await import("@nbai/nbmap-gl");
+        const maplibregl = await import("maplibre-gl");
         if (cancelled || !mapContainer.current) return;
 
-        const nextbillion = nb.default;
-        nextbillion.setApiKey(process.env.NEXT_PUBLIC_NBAI_API_KEY!);
-
         // Store constructors on window for use in renderMap
-        (window as any).__Marker = nb.Marker;
-        (window as any).__Popup = nb.Popup;
+        (window as any).__Marker = maplibregl.Marker;
+        (window as any).__Popup = maplibregl.Popup;
 
-        const nbmap = new nb.NBMap({
+        const styleUrl = `https://api.nextbillion.io/maps/dark/style.json?key=${process.env.NEXT_PUBLIC_NBAI_API_KEY}`;
+
+        const map = new maplibregl.Map({
           container: mapContainer.current,
-          style: "https://api.nextbillion.io/maps/streets/style.json",
+          style: styleUrl,
           zoom: 3.5,
-          center: { lat: 39.8283, lng: -98.5795 },
+          center: [-98.5795, 39.8283],
+          attributionControl: false,
         });
-        mapRef.current = nbmap;
+        mapRef.current = { map };
 
         // Wait for the map style to fully load before signaling ready
-        const map = nbmap.map;
         if (map.loaded()) {
           if (!cancelled) setMapReady(true);
         } else {
@@ -178,7 +248,7 @@ export default function ItineraryMap({
           });
         }
       } catch (err) {
-        console.error("Failed to load nbmap-gl:", err);
+        console.error("Failed to load maplibre-gl:", err);
       }
     }
 
@@ -196,9 +266,9 @@ export default function ItineraryMap({
 
   // Render markers + route
   const renderMap = useCallback(async () => {
-    const nbmap = mapRef.current;
-    if (!nbmap || !nbmap.map) return;
-    const map = nbmap.map;
+    const mapInstance = mapRef.current;
+    if (!mapInstance || !mapInstance.map) return;
+    const map = mapInstance.map;
     const Marker = (window as any).__Marker;
     const Popup = (window as any).__Popup;
 
@@ -295,8 +365,8 @@ export default function ItineraryMap({
       const startCoincides =
         occupiedForStartEnd.has(startKey) ||
         (endLocation && itineraryPosKey(endLocation.lat, endLocation.lon) === startKey);
-      startLng = startLocation.lon + (startCoincides ? 0.08 : 0);
-      startLat = startLocation.lat + (startCoincides ? -0.06 : 0);
+      startLng = startLocation.lon + (startCoincides ? 0.0075 : 0);
+      startLat = startLocation.lat + (startCoincides ? -0.0075 : 0);
       occupiedForStartEnd.add(startKey);
       occupiedForStartEnd.add(itineraryPosKey(startLat, startLng));
       const startEl = document.createElement("div");
@@ -315,8 +385,8 @@ export default function ItineraryMap({
     if (endLocation) {
       const endKey = itineraryPosKey(endLocation.lat, endLocation.lon);
       const endCoincides = occupiedForStartEnd.has(endKey);
-      endLng = endLocation.lon + (endCoincides ? -0.08 : 0);
-      endLat = endLocation.lat + (endCoincides ? 0.06 : 0);
+      endLng = endLocation.lon + (endCoincides ? -0.0075 : 0);
+      endLat = endLocation.lat + (endCoincides ? 0.0075 : 0);
       const endEl = document.createElement("div");
       endEl.style.cssText =
         "width:26px;height:26px;border-radius:50%;background:#ef4444;color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.3);";
@@ -349,16 +419,12 @@ export default function ItineraryMap({
       const awayLogo = getTeamLogoPath(g.away_team);
       const homeLogo = getTeamLogoPath(g.home_team);
       const img = (path: string, abbr: string) =>
-        path ? `<img src="${path}" alt="${abbr}" width="20" height="20" style="vertical-align:middle;margin:0 2px" />` : "";
+        path ? `<img src="${path}" alt="${abbr}" width="20" height="20" style="vertical-align:middle;margin:0 2px;display:inline-block" />` : "";
       const popup = new Popup({ offset: 15, closeButton: false }).setHTML(
-        `<div style="font-size:13px;line-height:1.4">
-          <strong>${awayLogo ? img(awayLogo, g.away_team) : ""} ${g.away_team} @ ${homeLogo ? img(homeLogo, g.home_team) : ""} ${g.home_team}</strong><br/>
-          ${g.stadium_name || ""}, ${g.city || ""}<br/>
-          ${new Date(g.date_time).toLocaleDateString("en-US", {
-            weekday: "short",
-            month: "short",
-            day: "numeric",
-          })}
+        `<div style="font-size:13px;line-height:1.4;width:280px">
+          <div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><strong>${awayLogo ? img(awayLogo, g.away_team) : ""} ${g.away_team} @ ${homeLogo ? img(homeLogo, g.home_team) : ""} ${g.home_team}</strong></div>
+          <div>${g.stadium_name || ""}, ${g.city || ""}</div>
+          <div>${formatLocalDate(g.date_time, g.home_team)} ${formatLocalTime(g.date_time, g.home_team)}</div>
         </div>`
       );
 
@@ -553,7 +619,8 @@ export default function ItineraryMap({
                   const lat = p0[1] + frac * (p1[1] - p0[1]);
                   const bearing = bearingDeg(p0, p1);
                   const el = createAirplaneElement();
-                  el.style.transform = `rotate(${bearing}deg)`;
+                  const svg = el.querySelector("svg") as SVGElement | null;
+                  if (svg) svg.style.transform = `rotate(${bearing}deg)`;
                   const marker = new Marker({ element: el })
                     .setLngLat([lng, lat])
                     .addTo(map);
@@ -606,9 +673,108 @@ export default function ItineraryMap({
 
   return (
     <div className="relative">
-      <div ref={mapContainer} className="w-full h-[450px] rounded-lg border" />
+      <div ref={mapContainer} className="w-full rounded-lg border h-[calc(100vh-260px)] min-h-[400px]" />
+
+      {/* Itinerary side panel */}
+      <div
+        className={`absolute top-0 right-0 h-full w-80 transition-transform duration-300 ease-in-out ${
+          panelOpen ? "translate-x-0" : "translate-x-full"
+        }`}
+      >
+        <button
+          type="button"
+          onClick={() => setPanelOpen(!panelOpen)}
+          className="absolute -left-8 top-4 z-10 flex h-8 w-8 items-center justify-center rounded-l-md bg-card/95 shadow-md border border-r-0 border-border hover:bg-muted"
+          title={panelOpen ? "Hide itinerary" : "Show itinerary"}
+        >
+          {panelOpen ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+        </button>
+        <div className="h-full rounded-r-lg border-l bg-card/95 backdrop-blur shadow-lg flex flex-col overflow-hidden">
+          <div className="px-3 py-2 border-b font-semibold text-sm shrink-0">Travel Itinerary</div>
+          <ScrollArea className="flex-1 min-h-0 px-3 py-2">
+            <div className="space-y-1">
+              {(() => {
+                let segIdx = 0;
+                const fmtDate = (dt: string, homeTeam: string) => formatLocalDate(dt, homeTeam);
+                const fmtTime = (dt: string, homeTeam: string) => formatLocalTime(dt, homeTeam);
+                const modeIcon = (idx: number) => {
+                  const mode = segmentModes?.[idx] ?? "car";
+                  return (
+                    <div className="flex items-center justify-center gap-1 py-1 text-muted-foreground">
+                      <div className="h-px w-6 bg-border" />
+                      {mode === "air" ? <Plane className="h-3.5 w-3.5" /> : <Car className="h-3.5 w-3.5" />}
+                      <div className="h-px w-6 bg-border" />
+                    </div>
+                  );
+                };
+
+                const sortedStopovers = (stopovers ?? []).slice().sort((a, b) => a.after_index - b.after_index || a.sort_order - b.sort_order);
+                const stopoversAfter = (idx: number) => sortedStopovers.filter((s) => s.after_index === idx);
+
+                return (
+                  <>
+                    {startLocation && (
+                      <>
+                        <div className="flex items-center gap-2 rounded bg-green-500/20 border border-green-500/30 px-2 py-1.5 text-xs">
+                          <span className="font-semibold text-green-400">Start</span>
+                        </div>
+                        {(games.length > 0 || endLocation) && modeIcon(segIdx++)}
+                      </>
+                    )}
+                    {games.map((g, i) => {
+                      const sAfter = stopoversAfter(i);
+                      return (
+                        <div key={g.game_id}>
+                          <div className="flex items-start gap-2 rounded border px-2 py-1.5 text-xs bg-card hover:bg-muted/50">
+                            <span className="mt-0.5 font-bold text-muted-foreground w-4 shrink-0">{i + 1}</span>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1 font-medium">
+                                {g.home_team && (
+                                  <img src={getTeamLogoPath(g.away_team)} alt={g.away_team} className="h-4 w-4" />
+                                )}
+                                <span>@</span>
+                                {g.home_team && (
+                                  <img src={getTeamLogoPath(g.home_team)} alt={g.home_team} className="h-4 w-4" />
+                                )}
+                                <span className="ml-0.5 truncate">{g.away_team} @ {g.home_team}</span>
+                              </div>
+                              {g.stadium_name && (
+                                <div className="text-muted-foreground truncate">{g.stadium_name}</div>
+                              )}
+                              <div className="text-muted-foreground">{fmtDate(g.date_time, g.home_team)} {fmtTime(g.date_time, g.home_team)}</div>
+                            </div>
+                          </div>
+                          {sAfter.map((s) => (
+                            <div key={`stop-${s.after_index}-${s.sort_order}`}>
+                              {modeIcon(segIdx++)}
+                              <div className="flex items-center gap-2 rounded border border-dashed border-muted px-2 py-1.5 text-xs bg-muted/20">
+                                <MapPin className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                                <span className="text-muted-foreground">Stopover</span>
+                              </div>
+                            </div>
+                          ))}
+                          {(i < games.length - 1 || endLocation) && modeIcon(segIdx++)}
+                        </div>
+                      );
+                    })}
+                    {endLocation && (
+                      <div className="flex items-center gap-2 rounded bg-destructive/20 border border-destructive/30 px-2 py-1.5 text-xs">
+                        <span className="font-semibold text-destructive">End</span>
+                      </div>
+                    )}
+                    {games.length === 0 && !startLocation && !endLocation && (
+                      <p className="text-xs text-muted-foreground text-center py-4">No games in itinerary yet</p>
+                    )}
+                  </>
+                );
+              })()}
+            </div>
+          </ScrollArea>
+        </div>
+      </div>
+
       {routeInfo && (
-        <div className="absolute bottom-3 left-3 bg-white/90 backdrop-blur rounded-md px-3 py-2 text-xs shadow space-y-1">
+        <div className="absolute bottom-3 left-3 bg-card/90 backdrop-blur rounded-md px-3 py-2 text-xs shadow space-y-1">
           {routeInfo.drivingDistance > 0 && (
             <div>
               <span className="text-muted-foreground">Driving: </span>
@@ -644,6 +810,21 @@ export default function ItineraryMap({
           )}
         </div>
       )}
+
+      {/* NextBillion.ai attribution */}
+      <a
+        href="https://nextbillion.ai"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="absolute top-3 left-3 bg-card/90 backdrop-blur rounded-md px-2 py-1.5 shadow hover:bg-card transition-colors"
+        title="Powered by NextBillion.ai"
+      >
+        <img
+          src="/logo.png"
+          alt="NextBillion.ai"
+          className="h-6 w-auto rounded opacity-80 hover:opacity-100 transition-opacity"
+        />
+      </a>
       <Dialog open={!!selectedBallpark} onOpenChange={(open) => !open && setSelectedBallpark(null)}>
         <DialogContent className="max-w-2xl p-0 overflow-hidden" showCloseButton>
           {selectedBallpark && (

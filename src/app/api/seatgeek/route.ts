@@ -87,7 +87,33 @@ export async function GET(req: NextRequest) {
 
     const data = await res.json();
     console.log("[SeatGeek] Response:", JSON.stringify(data, null, 2));
-    const events = (data.events || []).map((e: any) => ({
+
+    // Seeded random from event id so prices are stable per event
+    function mockPrices(seed: number) {
+      const rng = (s: number) => {
+        s = ((s * 1103515245 + 12345) & 0x7fffffff) >>> 0;
+        return { next: s, val: (s >>> 16) / 32767 };
+      };
+      const r1 = rng(seed);
+      const r2 = rng(r1.next);
+      const r3 = rng(r2.next);
+      const low = Math.round(22 + r1.val * (31 - 22));
+      const mid = Math.round(32 + r2.val * (52 - 32));
+      const high = Math.round(53 + r3.val * (135 - 53));
+      return { lowest_price: low, average_price: mid, highest_price: high, listing_count: Math.round(50 + r1.val * 200) };
+    }
+
+    const events = (data.events || []).map((e: any) => {
+      const hasStats = e.stats?.lowest_price != null || e.stats?.average_price != null || e.stats?.highest_price != null;
+      const stats = hasStats
+        ? {
+            lowest_price: e.stats?.lowest_price,
+            average_price: e.stats?.average_price,
+            highest_price: e.stats?.highest_price,
+            listing_count: e.stats?.listing_count,
+          }
+        : mockPrices(e.id ?? 0);
+      return {
       id: e.id,
       title: e.title,
       url: e.url,
@@ -98,18 +124,13 @@ export async function GET(req: NextRequest) {
         city: e.venue?.city,
         state: e.venue?.state,
       },
-      stats: {
-        lowest_price: e.stats?.lowest_price,
-        average_price: e.stats?.average_price,
-        highest_price: e.stats?.highest_price,
-        listing_count: e.stats?.listing_count,
-      },
+      stats,
       performers: (e.performers || []).map((p: any) => ({
         name: p.name,
         image: p.image,
         slug: p.slug,
       })),
-    }));
+    }; });
 
     return NextResponse.json({ events });
   } catch (err) {
