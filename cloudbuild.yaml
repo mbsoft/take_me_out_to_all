@@ -1,5 +1,7 @@
 steps:
   # Step 1: Build Docker image
+  # Note: NEXT_PUBLIC_SUPABASE_URL must be passed at build time for Next.js client-side code
+  # NBAI_API_KEY is NOT needed at build time - it's proxied server-side at runtime
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'build'
@@ -11,7 +13,10 @@ steps:
       - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_ARTIFACT_REGISTRY_REPO}/${_SERVICE_NAME}:latest'
       - '--build-arg'
       - 'BUILDKIT_INLINE_CACHE=1'
+      - '--build-arg'
+      - 'NEXT_PUBLIC_SUPABASE_URL=$$SUPABASE_URL'
       - '.'
+    secretEnv: ['SUPABASE_URL']
     timeout: 900s # 15 minutes (within free tier 120 min/day)
 
   # Step 2: Push to Artifact Registry with SHA tag
@@ -53,7 +58,7 @@ steps:
       - '--set-env-vars'
       - 'NODE_ENV=production,NEXT_TELEMETRY_DISABLED=1'
       - '--set-secrets'
-      - 'NEXT_PUBLIC_SUPABASE_URL=supabase-url:latest,SUPABASE_SERVICE_ROLE_KEY=supabase-service-role-key:latest,NEXTAUTH_SECRET=nextauth-secret:latest,SEATGEEK_CLIENT_ID=seatgeek-client-id:latest,SEATGEEK_CLIENT_SECRET=seatgeek-client-secret:latest,NEXT_PUBLIC_NBAI_API_KEY=nbai-api-key:latest'
+      - 'NEXT_PUBLIC_SUPABASE_URL=supabase-url:latest,SUPABASE_SERVICE_ROLE_KEY=supabase-service-role-key:latest,NEXTAUTH_SECRET=nextauth-secret:latest,SEATGEEK_CLIENT_ID=seatgeek-client-id:latest,SEATGEEK_CLIENT_SECRET=seatgeek-client-secret:latest,NBAI_API_KEY=nbai-api-key:latest'
 
   # Step 5: Run smoke tests
   - name: 'gcr.io/cloud-builders/curl'
@@ -84,3 +89,10 @@ images:
 
 # Timeout for entire build
 timeout: 1800s # 30 minutes max
+
+# Secret Manager secrets for build-time variables
+# Note: NBAI_API_KEY is NOT needed at build time - it's used at runtime via --set-secrets
+availableSecrets:
+  secretManager:
+    - versionName: projects/${PROJECT_ID}/secrets/supabase-url/versions/latest
+      env: 'SUPABASE_URL'

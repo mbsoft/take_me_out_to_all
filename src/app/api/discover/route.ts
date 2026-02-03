@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const NBAI_API_KEY = process.env.NEXT_PUBLIC_NBAI_API_KEY;
+const NBAI_API_KEY = process.env.NBAI_API_KEY || process.env.NEXT_PUBLIC_NBAI_API_KEY;
 
 /** NextBillion Discover API proxy. Returns places with label and lat/lng for autocomplete. */
 export async function GET(req: NextRequest) {

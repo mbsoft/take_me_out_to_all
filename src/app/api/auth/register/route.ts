@@ -4,7 +4,7 @@ import { v4 as uuid } from "uuid";
 import { db } from "@/lib/db";
 
 export async function POST(req: Request) {
-  const { email, password, name } = await req.json();
+  const { email, password } = await req.json();
   if (!email || !password) {
     return NextResponse.json({ error: "Email and password required" }, { status: 400 });
   }
@@ -22,7 +22,7 @@ export async function POST(req: Request) {
   const hash = await bcrypt.hash(password, 10);
   const { error } = await db
     .from("users")
-    .insert({ id, email, password_hash: hash, name: name || null });
+    .insert({ id, email, password_hash: hash, name: null });
   if (error) {
     return NextResponse.json({ error: "Registration failed" }, { status: 500 });
   }

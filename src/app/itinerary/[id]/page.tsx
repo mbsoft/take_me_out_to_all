@@ -160,6 +160,8 @@ export default function ItineraryBuilderPage() {
   const [stopoverAddingAfterIndex, setStopoverAddingAfterIndex] = useState<number | null>(null);
   const [stopoverSearchValue, setStopoverSearchValue] = useState("");
   const [selectedGame, setSelectedGame] = useState<Game | null>(null);
+  const [addingGameId, setAddingGameId] = useState<number | null>(null);
+  const [removingGameId, setRemovingGameId] = useState<number | null>(null);
 
   useEffect(() => {
     if (status === "unauthenticated") router.push("/login");
@@ -196,25 +198,49 @@ export default function ItineraryBuilderPage() {
   }, [teamFilter, startDate, endDate, dayOnly]);
 
   // Load suggestions
+  const loadSuggestions = useCallback(async () => {
+    if (!id) return;
+    try {
+      const res = await fetch(`/api/suggest?itineraryId=${id}`);
+      const data = await res.json();
+      setSuggestions(data.suggestions || []);
+    } catch (error) {
+      console.error("Failed to load suggestions:", error);
+      setSuggestions([]);
+    }
+  }, [id]);
+
   useEffect(() => {
     if (!itinerary) return;
-    fetch(`/api/suggest?itineraryId=${id}`)
-      .then((r) => r.json())
-      .then((data) => setSuggestions(data.suggestions || []));
-  }, [itinerary, id]);
+    loadSuggestions();
+  }, [itinerary, loadSuggestions]);
 
   async function addGame(gameId: number) {
-    await fetch(`/api/itineraries/${id}/games`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ game_id: gameId }),
-    });
-    await loadItinerary();
+    setAddingGameId(gameId);
+    try {
+      await fetch(`/api/itineraries/${id}/games`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ game_id: gameId }),
+      });
+      await loadItinerary();
+      // Reload suggestions after adding a game
+      await loadSuggestions();
+    } finally {
+      setAddingGameId(null);
+    }
   }
 
   async function removeGame(gameId: number) {
-    await fetch(`/api/itineraries/${id}/games/${gameId}`, { method: "DELETE" });
-    await loadItinerary();
+    setRemovingGameId(gameId);
+    try {
+      await fetch(`/api/itineraries/${id}/games/${gameId}`, { method: "DELETE" });
+      await loadItinerary();
+      // Reload suggestions after removing a game
+      await loadSuggestions();
+    } finally {
+      setRemovingGameId(null);
+    }
   }
 
   async function addStopover(afterIndex: number, place: PlaceResult) {
@@ -345,6 +371,9 @@ export default function ItineraryBuilderPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ game_ids: games.map((g) => g.game_id) }),
     });
+
+    // Reload suggestions after reordering (last game position may have changed)
+    await loadSuggestions();
   }
 
   async function handleDelete() {
@@ -522,22 +551,33 @@ export default function ItineraryBuilderPage() {
           </CardHeader>
           <CardContent>
             <div className="flex gap-2 overflow-x-auto pb-2">
-              {suggestions.map((s) => (
-                <Card key={s.game_id} className="min-w-[200px] flex-shrink-0">
-                  <CardContent className="p-3 space-y-1">
-                    <div className="font-medium text-sm">
-                      <GameMatchup awayTeam={s.away_team} homeTeam={s.home_team} size={18} />
-                    </div>
-                    <div className="text-xs text-muted-foreground">{s.stadium_name}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {formatDate(s.date_time, s.home_team)} &middot; {s.distance} mi
-                    </div>
-                    <Button size="sm" className="w-full mt-1" onClick={() => addGame(s.game_id)}>
-                      Add
-                    </Button>
-                  </CardContent>
-                </Card>
-              ))}
+              {suggestions.map((s) => {
+                const isAdding = addingGameId === s.game_id;
+                return (
+                  <Card
+                    key={s.game_id}
+                    className={`min-w-[200px] flex-shrink-0 transition-opacity ${isAdding ? 'opacity-50' : ''}`}
+                  >
+                    <CardContent className="p-3 space-y-1">
+                      <div className="font-medium text-sm">
+                        <GameMatchup awayTeam={s.away_team} homeTeam={s.home_team} size={18} />
+                      </div>
+                      <div className="text-xs text-muted-foreground">{s.stadium_name}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {formatDate(s.date_time, s.home_team)} &middot; {s.distance} mi
+                      </div>
+                      <Button
+                        size="sm"
+                        className="w-full mt-1"
+                        onClick={() => addGame(s.game_id)}
+                        disabled={isAdding}
+                      >
+                        {isAdding ? "Adding..." : "Add"}
+                      </Button>
+                    </CardContent>
+                  </Card>
+                );
+              })}
             </div>
           </CardContent>
         </Card>
@@ -597,27 +637,35 @@ export default function ItineraryBuilderPage() {
             <Separator />
             <ScrollArea className="h-[400px]">
               <div className="space-y-1">
-                {filteredAvailable.slice(0, 100).map((g) => (
-                  <div
-                    key={g.game_id}
-                    className="flex items-center justify-between p-2 rounded hover:bg-muted text-sm"
-                  >
-                    <div>
-                      <span className="font-medium inline-flex items-center gap-1.5">
-                        <GameMatchup awayTeam={g.away_team} homeTeam={g.home_team} size={18} />
-                      </span>
-                      <span className="ml-2 text-xs text-muted-foreground">
-                        {formatDate(g.date_time, g.home_team)} {formatTime(g.date_time, g.home_team)}
-                        {isDayGame(g.date_time) && (
-                          <Badge variant="outline" className="ml-1 text-[10px] py-0">DAY</Badge>
-                        )}
-                      </span>
+                {filteredAvailable.slice(0, 100).map((g) => {
+                  const isAdding = addingGameId === g.game_id;
+                  return (
+                    <div
+                      key={g.game_id}
+                      className={`flex items-center justify-between p-2 rounded hover:bg-muted text-sm transition-opacity ${isAdding ? 'opacity-50' : ''}`}
+                    >
+                      <div>
+                        <span className="font-medium inline-flex items-center gap-1.5">
+                          <GameMatchup awayTeam={g.away_team} homeTeam={g.home_team} size={18} />
+                        </span>
+                        <span className="ml-2 text-xs text-muted-foreground">
+                          {formatDate(g.date_time, g.home_team)} {formatTime(g.date_time, g.home_team)}
+                          {isDayGame(g.date_time) && (
+                            <Badge variant="outline" className="ml-1 text-[10px] py-0">DAY</Badge>
+                          )}
+                        </span>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => addGame(g.game_id)}
+                        disabled={isAdding}
+                      >
+                        {isAdding ? "Adding..." : "+ Add"}
+                      </Button>
                     </div>
-                    <Button size="sm" variant="ghost" onClick={() => addGame(g.game_id)}>
-                      + Add
-                    </Button>
-                  </div>
-                ))}
+                  );
+                })}
                 {filteredAvailable.length === 0 && (
                   <p className="text-sm text-muted-foreground text-center py-4">
                     No matching games
@@ -699,18 +747,19 @@ export default function ItineraryBuilderPage() {
                                 )}
                                 {itinerary.games.map((g, index) => {
                                   const stopoversAfter = (itinerary.stopovers ?? []).filter((s) => s.after_index === index).sort((a, b) => a.sort_order - b.sort_order);
+                                  const isRemoving = removingGameId === g.game_id;
                                   return (
                                     <div key={g.game_id} className="space-y-1">
-                                      <Draggable draggableId={String(g.game_id)} index={index}>
+                                      <Draggable draggableId={String(g.game_id)} index={index} isDragDisabled={isRemoving}>
                                         {(prov, snap) => (
                                           <div
                                             ref={prov.innerRef}
                                             {...prov.draggableProps}
                                             {...prov.dragHandleProps}
-                                            className={`flex items-center justify-between p-2 rounded border text-sm cursor-pointer ${
+                                            className={`flex items-center justify-between p-2 rounded border text-sm cursor-pointer transition-opacity ${
                                               snap.isDragging ? "bg-accent/20 border-accent" : "bg-card hover:bg-muted/50"
-                                            }`}
-                                            onClick={() => setSelectedGame(g)}
+                                            } ${isRemoving ? "opacity-50" : ""}`}
+                                            onClick={() => !isRemoving && setSelectedGame(g)}
                                           >
                                             <div className="flex items-center gap-2">
                                               <span className="text-xs text-muted-foreground w-5">{index + 1}</span>
@@ -737,8 +786,9 @@ export default function ItineraryBuilderPage() {
                                               variant="ghost"
                                               className="text-red-500 hover:text-red-700"
                                               onClick={(e) => { e.stopPropagation(); removeGame(g.game_id); }}
+                                              disabled={isRemoving}
                                             >
-                                              Remove
+                                              {isRemoving ? "Removing..." : "Remove"}
                                             </Button>
                                           </div>
                                         )}
@@ -763,40 +813,44 @@ export default function ItineraryBuilderPage() {
                                           {renderSegmentSelector(segIdx++)}
                                         </div>
                                       ))}
-                                      {stopoverAddingAfterIndex === index ? (
-                                        <div className="rounded border border-muted bg-muted/20 p-2">
-                                          <Label className="text-xs">Search for a stopover</Label>
-                                          <PlaceAutocomplete
-                                            value={stopoverSearchValue}
-                                            onChange={setStopoverSearchValue}
-                                            onSelect={(place) => addStopover(index, place)}
-                                            placeholder="City or address..."
-                                            className="mt-1"
-                                          />
+                                      {/* Only show add stopover option if no stopover exists for this segment */}
+                                      {stopoversAfter.length === 0 && (
+                                        stopoverAddingAfterIndex === index ? (
+                                          <div className="rounded border border-muted bg-muted/20 p-2">
+                                            <Label className="text-xs">Search for a stopover</Label>
+                                            <PlaceAutocomplete
+                                              value={stopoverSearchValue}
+                                              onChange={setStopoverSearchValue}
+                                              onSelect={(place) => addStopover(index, place)}
+                                              placeholder="City or address..."
+                                              className="mt-1"
+                                            />
+                                            <Button
+                                              size="sm"
+                                              variant="ghost"
+                                              className="mt-2"
+                                              onClick={() => {
+                                                setStopoverAddingAfterIndex(null);
+                                                setStopoverSearchValue("");
+                                              }}
+                                            >
+                                              Cancel
+                                            </Button>
+                                          </div>
+                                        ) : (
                                           <Button
                                             size="sm"
-                                            variant="ghost"
-                                            className="mt-2"
-                                            onClick={() => {
-                                              setStopoverAddingAfterIndex(null);
-                                              setStopoverSearchValue("");
-                                            }}
+                                            variant="outline"
+                                            className="w-full border-dashed text-muted-foreground"
+                                            onClick={() => setStopoverAddingAfterIndex(index)}
                                           >
-                                            Cancel
+                                            <MapPin className="h-3.5 w-3.5 mr-1.5" />
+                                            Add stopover
                                           </Button>
-                                        </div>
-                                      ) : (
-                                        <Button
-                                          size="sm"
-                                          variant="outline"
-                                          className="w-full border-dashed text-muted-foreground"
-                                          onClick={() => setStopoverAddingAfterIndex(index)}
-                                        >
-                                          <MapPin className="h-3.5 w-3.5 mr-1.5" />
-                                          Add stopover
-                                        </Button>
+                                        )
                                       )}
-                                      {(index < itinerary.games.length - 1 || itinerary.end_location) && renderSegmentSelector(segIdx++)}
+                                      {/* Only render segment selector here if there are no stopovers (stopovers have their own selector after them) */}
+                                      {stopoversAfter.length === 0 && (index < itinerary.games.length - 1 || itinerary.end_location) && renderSegmentSelector(segIdx++)}
                                     </div>
                                   );
                                 })}

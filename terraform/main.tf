@@ -21,6 +21,16 @@ import {
 }
 
 import {
+  to = module.secrets.google_secret_manager_secret.secrets["google_client_id"]
+  id = "projects/takemeout-486217/secrets/google-client-id"
+}
+
+import {
+  to = module.secrets.google_secret_manager_secret.secrets["google_client_secret"]
+  id = "projects/takemeout-486217/secrets/google-client-secret"
+}
+
+import {
   to = module.secrets.google_secret_manager_secret.secrets["seatgeek_client_id"]
   id = "projects/takemeout-486217/secrets/seatgeek-client-id"
 }
@@ -74,6 +84,8 @@ module "secrets" {
     "supabase_url",
     "supabase_service_role_key",
     "nextauth_secret",
+    "google_client_id",
+    "google_client_secret",
     "seatgeek_client_id",
     "seatgeek_client_secret",
     "nbai_api_key",
@@ -82,6 +94,8 @@ module "secrets" {
     supabase_url              = var.supabase_url
     supabase_service_role_key = var.supabase_service_role_key
     nextauth_secret           = var.nextauth_secret
+    google_client_id          = var.google_client_id
+    google_client_secret      = var.google_client_secret
     seatgeek_client_id        = var.seatgeek_client_id
     seatgeek_client_secret    = var.seatgeek_client_secret
     nbai_api_key              = var.nbai_api_key
@@ -109,9 +123,11 @@ module "cloud_run" {
     NEXT_PUBLIC_SUPABASE_URL  = module.secrets.secret_ids["supabase_url"]
     SUPABASE_SERVICE_ROLE_KEY = module.secrets.secret_ids["supabase_service_role_key"]
     NEXTAUTH_SECRET           = module.secrets.secret_ids["nextauth_secret"]
+    GOOGLE_CLIENT_ID          = module.secrets.secret_ids["google_client_id"]
+    GOOGLE_CLIENT_SECRET      = module.secrets.secret_ids["google_client_secret"]
     SEATGEEK_CLIENT_ID        = module.secrets.secret_ids["seatgeek_client_id"]
     SEATGEEK_CLIENT_SECRET    = module.secrets.secret_ids["seatgeek_client_secret"]
-    NEXT_PUBLIC_NBAI_API_KEY  = module.secrets.secret_ids["nbai_api_key"]
+    NBAI_API_KEY              = module.secrets.secret_ids["nbai_api_key"]
   }
 
   # Cloud Run config optimized for free tier

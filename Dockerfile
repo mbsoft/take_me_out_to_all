@@ -18,6 +18,13 @@ RUN npm ci
 # Copy source code
 COPY . .
 
+# Build arguments for NEXT_PUBLIC_* variables (must be available at build time)
+# Note: NBAI_API_KEY is NOT needed at build time - it's proxied server-side at runtime
+ARG NEXT_PUBLIC_SUPABASE_URL
+
+# Set them as environment variables for the build
+ENV NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL
+
 # Build Next.js app
 # Disable telemetry during build
 ENV NEXT_TELEMETRY_DISABLED=1

@@ -45,6 +45,8 @@ create_secret() {
 create_secret "supabase-url" "$NEXT_PUBLIC_SUPABASE_URL"
 create_secret "supabase-service-role-key" "$SUPABASE_SERVICE_ROLE_KEY"
 create_secret "nextauth-secret" "$NEXTAUTH_SECRET"
+create_secret "google-client-id" "$GOOGLE_CLIENT_ID"
+create_secret "google-client-secret" "$GOOGLE_CLIENT_SECRET"
 create_secret "seatgeek-client-id" "$SEATGEEK_CLIENT_ID"
 create_secret "seatgeek-client-secret" "$SEATGEEK_CLIENT_SECRET"
 create_secret "nbai-api-key" "$NEXT_PUBLIC_NBAI_API_KEY"

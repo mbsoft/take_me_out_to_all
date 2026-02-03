@@ -60,6 +60,10 @@ A full-stack web application for planning MLB ballpark visit itineraries for the
    NEXTAUTH_SECRET=your-random-secret
    NEXTAUTH_URL=http://localhost:3000
 
+   # Google OAuth (for SSO)
+   GOOGLE_CLIENT_ID=your-google-client-id
+   GOOGLE_CLIENT_SECRET=your-google-client-secret
+
    # External APIs
    SEATGEEK_CLIENT_ID=your-seatgeek-client-id
    SEATGEEK_CLIENT_SECRET=your-seatgeek-client-secret
@@ -197,6 +201,8 @@ For detailed deployment instructions, troubleshooting, and production setup, see
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase service key | Yes |
 | `NEXTAUTH_SECRET` | NextAuth secret key | Yes |
 | `NEXTAUTH_URL` | Application base URL | Yes |
+| `GOOGLE_CLIENT_ID` | Google OAuth client ID | Yes |
+| `GOOGLE_CLIENT_SECRET` | Google OAuth client secret | Yes |
 | `SEATGEEK_CLIENT_ID` | SeatGeek API client ID | Yes |
 | `SEATGEEK_CLIENT_SECRET` | SeatGeek API secret | Yes |
 | `NEXT_PUBLIC_NBAI_API_KEY` | NextBillion.ai API key | Yes |

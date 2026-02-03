@@ -56,8 +56,27 @@ This guide explains how to deploy the MLB Ballpark Itinerary Planner to Google C
 
 1. Create a Supabase project at [supabase.com](https://supabase.com)
 2. Navigate to SQL Editor and run [src/lib/schema.sql](src/lib/schema.sql)
-3. Run any migration files in [scripts/migrations/](scripts/migrations/)
+3. Run the OAuth support migration: [scripts/migrations/add_oauth_support.sql](scripts/migrations/add_oauth_support.sql)
+   - This makes `password_hash` nullable for Google OAuth users
 4. Copy your project URL and service role key from Settings > API
+
+### Google OAuth Setup
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Create a new project or select your existing GCP project
+3. Enable the Google+ API:
+   - Navigate to "APIs & Services" → "Library"
+   - Search for "Google+ API" and enable it
+4. Create OAuth 2.0 credentials:
+   - Go to "APIs & Services" → "Credentials"
+   - Click "Create Credentials" → "OAuth 2.0 Client ID"
+   - Application type: "Web application"
+   - Name: "MLB Itinerary Planner"
+   - Authorized redirect URIs:
+     - Development: `http://localhost:3000/api/auth/callback/google`
+     - Production: `https://your-domain.com/api/auth/callback/google`
+   - Click "Create"
+5. Copy the Client ID and Client Secret (you'll need these for `.env.local`)
 
 ### Environment Variables
 
@@ -71,6 +90,10 @@ SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 # NextAuth (generate a random 64-char string for production)
 NEXTAUTH_SECRET=your-random-64-character-secret
 NEXTAUTH_URL=http://localhost:3000
+
+# Google OAuth (for SSO authentication)
+GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=your-google-client-secret
 
 # External APIs
 SEATGEEK_CLIENT_ID=your-seatgeek-client-id
@@ -209,12 +232,15 @@ When you make code changes:
 
 ```bash
 # Build and push new image
+# Note: This reads NEXT_PUBLIC_* variables from .env.local and passes them at build time
 ./scripts/build-and-push.sh v1.0.1
 
 # Update Cloud Run service (if using Terraform)
 cd terraform
 terraform apply -var="container_image=NEW_IMAGE_URL"
 ```
+
+**Important:** The build script requires `.env.local` to contain `NEXT_PUBLIC_NBAI_API_KEY` and `NEXT_PUBLIC_SUPABASE_URL` because Next.js inlines these into the JavaScript bundle at build time. Runtime secrets won't work for `NEXT_PUBLIC_*` variables.
 
 ### Using CI/CD (Optional)
 

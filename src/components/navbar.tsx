@@ -11,6 +11,11 @@ export function Navbar() {
   const { data: session } = useSession();
   const { theme, toggleTheme } = useTheme();
 
+  // Don't show navbar if user is not signed in
+  if (!session) {
+    return null;
+  }
+
   return (
     <header className="border-b bg-card">
       <div className="container mx-auto flex h-14 items-center justify-between px-4">
@@ -38,28 +43,15 @@ export function Navbar() {
               <Moon className="h-5 w-5" />
             )}
           </Button>
-          {session ? (
-            <>
-              <Link href="/dashboard">
-                <Button variant="ghost" size="sm">Dashboard</Button>
-              </Link>
-              <Link href="/itinerary/new">
-                <Button size="sm">New Itinerary</Button>
-              </Link>
-              <Button variant="ghost" size="sm" onClick={() => signOut()}>
-                Sign Out
-              </Button>
-            </>
-          ) : (
-            <>
-              <Link href="/login">
-                <Button variant="ghost" size="sm">Log In</Button>
-              </Link>
-              <Link href="/register">
-                <Button size="sm">Sign Up</Button>
-              </Link>
-            </>
-          )}
+          <Link href="/dashboard">
+            <Button variant="ghost" size="sm">Dashboard</Button>
+          </Link>
+          <Link href="/itinerary/new">
+            <Button size="sm">New Itinerary</Button>
+          </Link>
+          <Button variant="ghost" size="sm" onClick={() => signOut()}>
+            Sign Out
+          </Button>
         </nav>
       </div>
     </header>

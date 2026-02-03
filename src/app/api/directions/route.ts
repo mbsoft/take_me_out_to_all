@@ -1,12 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import crypto from "crypto";
 
-const NBAI_API_KEY = process.env.NEXT_PUBLIC_NBAI_API_KEY;
+const NBAI_API_KEY = process.env.NBAI_API_KEY || process.env.NEXT_PUBLIC_NBAI_API_KEY;
 
 interface Waypoint {
   lat: number;
   lon: number;
+}
+
+/** Generate a hash of the route inputs for cache validation */
+function generateRouteHash(waypoints: Waypoint[], segmentModes: string[]): string {
+  const input = JSON.stringify({
+    waypoints: waypoints.map(w => ({ lat: w.lat.toFixed(5), lon: w.lon.toFixed(5) })),
+    modes: segmentModes,
+  });
+  return crypto.createHash("md5").update(input).digest("hex");
 }
 
 /** Encode one signed value for polyline6 (left-shift then chunk; negative = invert). */
@@ -144,9 +154,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "At least 2 waypoints required" }, { status: 400 });
   }
 
-  // Use cache only when no segment_modes are provided (so cached geometry matches current modes)
-  const hasSegmentModes = Array.isArray(segmentModes) && segmentModes.length > 0;
-  if (itineraryId && !hasSegmentModes) {
+  // Normalize segment modes array
+  const numSegments = waypoints.length - 1;
+  const normalizedModes = [...(Array.isArray(segmentModes) ? segmentModes : [])];
+  while (normalizedModes.length < numSegments) normalizedModes.push("car");
+
+  // Generate hash of current route inputs for cache validation
+  const currentRouteHash = generateRouteHash(waypoints, normalizedModes);
+
+  // Check for cached route geometry
+  if (itineraryId) {
     const { data: itinerary } = await db
       .from("itineraries")
       .select("route_geometry")
@@ -157,17 +174,23 @@ export async function POST(req: NextRequest) {
     if (itinerary?.route_geometry) {
       try {
         const cached = JSON.parse(itinerary.route_geometry);
-        // Cached routes without segment_modes are all driving
-        return NextResponse.json({
-          geometries: cached.geometries || [],
-          legs: cached.legs || [],
-          totalDistance: cached.totalDistance || 0,
-          totalDuration: cached.totalDuration || 0,
-          drivingDistance: cached.drivingDistance ?? cached.totalDistance ?? 0,
-          drivingDuration: cached.drivingDuration ?? cached.totalDuration ?? 0,
-          airDistance: cached.airDistance ?? 0,
-          airDuration: cached.airDuration ?? 0,
-        });
+        // Only use cache if the route hash matches (same waypoints + modes)
+        if (cached.routeHash === currentRouteHash) {
+          console.log("Using cached directions for itinerary:", itineraryId);
+          return NextResponse.json({
+            geometries: cached.geometries || [],
+            legs: cached.legs || [],
+            totalDistance: cached.totalDistance || 0,
+            totalDuration: cached.totalDuration || 0,
+            drivingDistance: cached.drivingDistance ?? cached.totalDistance ?? 0,
+            drivingDuration: cached.drivingDuration ?? cached.totalDuration ?? 0,
+            airDistance: cached.airDistance ?? 0,
+            airDuration: cached.airDuration ?? 0,
+            cached: true,
+          });
+        } else {
+          console.log("Route hash mismatch, fetching fresh directions");
+        }
       } catch (err) {
         console.warn("Failed to parse cached geometry, fetching fresh:", err);
       }
@@ -176,70 +199,21 @@ export async function POST(req: NextRequest) {
 
   const allLegs: Array<{ distance: number; duration: number; mode: "car" | "air" }> = [];
   const allGeometries: string[] = [];
-  const numSegments = waypoints.length - 1;
-  const modes: string[] = [...(Array.isArray(segmentModes) ? segmentModes : [])];
-  while (modes.length < numSegments) modes.push("car");
-  const useSegmentModes = modes.length >= numSegments;
 
-  if (useSegmentModes) {
-    for (let i = 0; i < numSegments; i++) {
-      const from = waypoints[i]!;
-      const to = waypoints[i + 1]!;
-      const mode = (modes[i] ?? "car") === "air" ? "air" : "car";
-      if (mode === "air") {
-        const arcPoints = exaggeratedArc(from, to, 24);
-        allGeometries.push(encodePolyline6Points(arcPoints));
-        const dist = haversineMeters(from, to);
-        allLegs.push({ distance: dist, duration: Math.round(dist / 200), mode: "air" }); // ~200 m/s flight
-      } else {
-        const origin = `${from.lat},${from.lon}`;
-        const destination = `${to.lat},${to.lon}`;
-        const url = new URL("https://api.nextbillion.io/directions/json");
-        url.searchParams.set("key", NBAI_API_KEY);
-        try {
-          const res = await fetch(url.toString(), {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              origin,
-              destination,
-              mode: "car",
-              overview: "full",
-              geometry: "polyline6",
-            }),
-            next: { revalidate: 3600 },
-          } as RequestInit);
-          if (!res.ok) continue;
-          const data = await res.json();
-          if (data.routes?.[0]) {
-            const route = data.routes[0];
-            const geometry = route.geometry || route.overview?.geometry;
-            if (typeof geometry === "string") allGeometries.push(geometry);
-            if (route.legs) {
-              for (const leg of route.legs) {
-                allLegs.push({
-                  distance: leg.distance?.value ?? leg.distance ?? 0,
-                  duration: leg.duration?.value ?? leg.duration ?? 0,
-                  mode: "car",
-                });
-              }
-            }
-          }
-        } catch (err) {
-          console.error("NB.ai Directions API error:", err);
-        }
-      }
-    }
-  } else {
-    // Legacy: single mode for whole route (car), chunked
-    const MAX_WAYPOINTS = 200;
-    for (let i = 0; i < waypoints.length - 1; i += MAX_WAYPOINTS - 1) {
-      const chunk = waypoints.slice(i, i + MAX_WAYPOINTS);
-      if (chunk.length < 2) break;
-      const origin = `${chunk[0]!.lat},${chunk[0]!.lon}`;
-      const destination = `${chunk[chunk.length - 1]!.lat},${chunk[chunk.length - 1]!.lon}`;
-      const intermediateWaypoints = chunk.slice(1, -1);
-      const waypointsStr = intermediateWaypoints.map((w) => `${w.lat},${w.lon}`).join("|");
+  // Process each segment with its mode
+  for (let i = 0; i < numSegments; i++) {
+    const from = waypoints[i]!;
+    const to = waypoints[i + 1]!;
+    const mode = (normalizedModes[i] ?? "car") === "air" ? "air" : "car";
+    
+    if (mode === "air") {
+      const arcPoints = exaggeratedArc(from, to, 24);
+      allGeometries.push(encodePolyline6Points(arcPoints));
+      const dist = haversineMeters(from, to);
+      allLegs.push({ distance: dist, duration: Math.round(dist / 200), mode: "air" }); // ~200 m/s flight
+    } else {
+      const origin = `${from.lat},${from.lon}`;
+      const destination = `${to.lat},${to.lon}`;
       const url = new URL("https://api.nextbillion.io/directions/json");
       url.searchParams.set("key", NBAI_API_KEY);
       try {
@@ -252,16 +226,20 @@ export async function POST(req: NextRequest) {
             mode: "car",
             overview: "full",
             geometry: "polyline6",
-            ...(intermediateWaypoints.length > 0 && { waypoints: waypointsStr }),
           }),
           next: { revalidate: 3600 },
         } as RequestInit);
-        if (!res.ok) continue;
+        if (!res.ok) {
+          console.error(`Directions API error: ${res.status}`);
+          continue;
+        }
         const data = await res.json();
         if (data.routes?.[0]) {
           const route = data.routes[0];
           const geometry = route.geometry || route.overview?.geometry;
-          if (typeof geometry === "string") allGeometries.push(geometry);
+          if (typeof geometry === "string") {
+            allGeometries.push(geometry);
+          }
           if (route.legs) {
             for (const leg of route.legs) {
               allLegs.push({
@@ -303,13 +281,15 @@ export async function POST(req: NextRequest) {
     airDuration,
   };
 
-  // Cache the result if itineraryId is provided
+  // Cache the result with route hash if itineraryId is provided
   if (itineraryId) {
+    const cacheData = { ...result, routeHash: currentRouteHash };
     await db
       .from("itineraries")
-      .update({ route_geometry: JSON.stringify(result) })
+      .update({ route_geometry: JSON.stringify(cacheData) })
       .eq("id", itineraryId)
       .eq("user_id", session.user.id);
+    console.log("Cached directions for itinerary:", itineraryId, "hash:", currentRouteHash);
   }
 
   return NextResponse.json(result);
