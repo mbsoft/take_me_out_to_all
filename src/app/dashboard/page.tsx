@@ -86,7 +86,7 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
+    <div className="max-w-5xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Your Itineraries</h1>
         <Link href="/itinerary/new">
@@ -100,7 +100,7 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {itineraries.map((it) => (
             <Card key={it.id} className="hover:bg-muted/50 transition-colors">
               <Link href={`/itinerary/${it.id}`} className="block">

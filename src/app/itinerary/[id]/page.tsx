@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter, useParams } from "next/navigation";
 import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd";
-import { Trash2, Map, List, Check, MapPin, Car, Plane } from "lucide-react";
+import { Trash2, Map, List, Check, MapPin, Car, Plane, Sparkles, Loader2 } from "lucide-react";
 import dynamic from "next/dynamic";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -162,6 +162,16 @@ export default function ItineraryBuilderPage() {
   const [selectedGame, setSelectedGame] = useState<Game | null>(null);
   const [addingGameId, setAddingGameId] = useState<number | null>(null);
   const [removingGameId, setRemovingGameId] = useState<number | null>(null);
+  const [autoGenerating, setAutoGenerating] = useState(false);
+  const [autoGenerateResult, setAutoGenerateResult] = useState<{
+    games_added: number;
+    total_parks: number;
+    parks_covered: number;
+    infeasible_parks: string[];
+    total_distance_miles: number;
+    estimated_days: number;
+  } | null>(null);
+  const [regenerateDialogOpen, setRegenerateDialogOpen] = useState(false);
 
   useEffect(() => {
     if (status === "unauthenticated") router.push("/login");
@@ -241,6 +251,19 @@ export default function ItineraryBuilderPage() {
     } finally {
       setRemovingGameId(null);
     }
+  }
+
+  async function clearAllGames() {
+    if (!itinerary || itinerary.games.length === 0) return;
+    for (const g of itinerary.games) {
+      await fetch(`/api/itineraries/${id}/games/${g.game_id}`, { method: "DELETE" });
+    }
+    // Clear stopovers too
+    for (const s of itinerary.stopovers ?? []) {
+      await fetch(`/api/itineraries/${id}/stopovers/${s.id}`, { method: "DELETE" });
+    }
+    await loadItinerary();
+    await loadSuggestions();
   }
 
   async function addStopover(afterIndex: number, place: PlaceResult) {
@@ -376,6 +399,32 @@ export default function ItineraryBuilderPage() {
     await loadSuggestions();
   }
 
+  async function handleAutoGenerate() {
+    setAutoGenerating(true);
+    setAutoGenerateResult(null);
+    try {
+      const res = await fetch(`/api/itineraries/${id}/auto-generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ start_date: startDate || undefined, end_date: endDate || undefined }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || "Failed to auto-generate itinerary");
+        return;
+      }
+      setAutoGenerateResult(data);
+      await loadItinerary();
+      await loadSuggestions();
+    } catch (err) {
+      console.error("Auto-generate failed:", err);
+      alert("Auto-generate failed. Please try again.");
+    } finally {
+      setAutoGenerating(false);
+      setRegenerateDialogOpen(false);
+    }
+  }
+
   async function handleDelete() {
     setDeleting(true);
     try {
@@ -452,6 +501,21 @@ export default function ItineraryBuilderPage() {
           <Button variant="outline" onClick={() => router.push("/dashboard")}>
             Back to Dashboard
           </Button>
+          {itinerary.games.length > 0 && itinerary.start_location && (
+            <Button
+              variant="outline"
+              onClick={() => setRegenerateDialogOpen(true)}
+              disabled={autoGenerating}
+              className="gap-2"
+            >
+              {autoGenerating ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Sparkles className="h-4 w-4" />
+              )}
+              Regenerate
+            </Button>
+          )}
           <Button
             variant="destructive"
             onClick={() => setDeleteDialogOpen(true)}
@@ -679,9 +743,21 @@ export default function ItineraryBuilderPage() {
         {/* Right: Itinerary */}
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">
-              Your Itinerary ({itinerary.games.length} games)
-            </CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base">
+                Your Itinerary ({itinerary.games.length} games)
+              </CardTitle>
+              {itinerary.games.length > 0 && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-muted-foreground hover:text-destructive"
+                  onClick={clearAllGames}
+                >
+                  Clear All
+                </Button>
+              )}
+            </div>
           </CardHeader>
           <CardContent>
             <DragDropContext onDragEnd={onDragEnd}>
@@ -690,9 +766,51 @@ export default function ItineraryBuilderPage() {
                   <div ref={provided.innerRef} {...provided.droppableProps}>
                     <ScrollArea className="h-[500px]">
                       {itinerary.games.length === 0 && !itinerary.start_location && !itinerary.end_location ? (
-                        <p className="text-sm text-muted-foreground text-center py-12">
-                          Add games from the left panel to build your itinerary
-                        </p>
+                        <div className="text-center py-12 space-y-4">
+                          <p className="text-sm text-muted-foreground">
+                            Add games from the left panel or auto-generate an optimized route
+                          </p>
+                          <Button
+                            onClick={handleAutoGenerate}
+                            disabled={autoGenerating}
+                            className="gap-2"
+                          >
+                            {autoGenerating ? (
+                              <>
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                                Generating...
+                              </>
+                            ) : (
+                              <>
+                                <Sparkles className="h-4 w-4" />
+                                Auto Generate Itinerary
+                              </>
+                            )}
+                          </Button>
+                        </div>
+                      ) : itinerary.games.length === 0 ? (
+                        <div className="text-center py-12 space-y-4">
+                          <p className="text-sm text-muted-foreground">
+                            Add games from the left panel or auto-generate an optimized route
+                          </p>
+                          <Button
+                            onClick={handleAutoGenerate}
+                            disabled={autoGenerating}
+                            className="gap-2"
+                          >
+                            {autoGenerating ? (
+                              <>
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                                Generating...
+                              </>
+                            ) : (
+                              <>
+                                <Sparkles className="h-4 w-4" />
+                                Auto Generate Itinerary
+                              </>
+                            )}
+                          </Button>
+                        </div>
                       ) : (
                         <div className="space-y-1">
                           {(() => {
@@ -916,6 +1034,93 @@ export default function ItineraryBuilderPage() {
           } : prev);
         }}
       />
+
+      {/* Regenerate confirmation dialog */}
+      <Dialog open={regenerateDialogOpen} onOpenChange={setRegenerateDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Regenerate Itinerary</DialogTitle>
+            <DialogDescription>
+              This will replace all {itinerary.games.length} existing games with a new auto-generated route. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setRegenerateDialogOpen(false)}
+              disabled={autoGenerating}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleAutoGenerate}
+              disabled={autoGenerating}
+              className="gap-2"
+            >
+              {autoGenerating ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-4 w-4" />
+                  Regenerate
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Auto-generate result dialog */}
+      <Dialog open={autoGenerateResult !== null} onOpenChange={(open) => { if (!open) setAutoGenerateResult(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Itinerary Generated</DialogTitle>
+          </DialogHeader>
+          {autoGenerateResult && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3 text-center">
+                <div className="rounded-lg border p-3">
+                  <div className="text-2xl font-bold">{autoGenerateResult.parks_covered}</div>
+                  <div className="text-xs text-muted-foreground">of {autoGenerateResult.total_parks} parks</div>
+                </div>
+                <div className="rounded-lg border p-3">
+                  <div className="text-2xl font-bold">{autoGenerateResult.estimated_days}</div>
+                  <div className="text-xs text-muted-foreground">days</div>
+                </div>
+                <div className="rounded-lg border p-3">
+                  <div className="text-2xl font-bold">{autoGenerateResult.total_distance_miles.toLocaleString()}</div>
+                  <div className="text-xs text-muted-foreground">miles</div>
+                </div>
+                <div className="rounded-lg border p-3">
+                  <div className="text-2xl font-bold">{autoGenerateResult.games_added}</div>
+                  <div className="text-xs text-muted-foreground">games</div>
+                </div>
+              </div>
+              {autoGenerateResult.infeasible_parks.length > 0 && (
+                <div className="rounded-lg border border-yellow-300 bg-yellow-50 p-3 text-sm">
+                  <p className="font-medium text-yellow-800">
+                    {autoGenerateResult.infeasible_parks.length} park{autoGenerateResult.infeasible_parks.length > 1 ? "s" : ""} could not be scheduled:
+                  </p>
+                  <p className="text-yellow-700 mt-1">
+                    {autoGenerateResult.infeasible_parks.join(", ")}
+                  </p>
+                  <p className="text-yellow-600 text-xs mt-1">
+                    No home games were available in the date window. Try an earlier start date or add these manually.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button onClick={() => setAutoGenerateResult(null)}>
+              Done
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

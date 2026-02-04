@@ -299,20 +299,15 @@ export default function ItineraryMap({
         .map((g) => itineraryPosKey(g.lat!, g.lon!))
     );
 
-    // Calculate zoom-based offset: closer at higher zoom levels
-    const currentZoom = map.getZoom();
-    const baseLngOffset = 0.08;
-    const baseLatOffset = 0.06;
-    // Scale factor decreases exponentially as zoom increases (2^((3-zoom)/2))
-    // At zoom 3: factor=1.0 (full offset), zoom 7: factor=0.25, zoom 11: factor=0.0625
-    const zoomScale = Math.pow(2, (3 - currentZoom) / 2);
+    // Build set of teams already in the itinerary so we skip their allBallparks markers
+    const itineraryTeams = new Set(games.map((g) => g.home_team));
 
     // Small team logos at all ballparks (all 30 when allBallparks provided)
     if (allBallparks?.length) {
       allBallparks.forEach((t) => {
-        const coincides = itineraryPositions.has(itineraryPosKey(t.lat, t.lon));
-        const offsetLng = coincides ? -(baseLngOffset * zoomScale) : 0;
-        const offsetLat = coincides ? (baseLatOffset * zoomScale) : 0;
+        // Skip if this team already has an itinerary stop marker
+        if (itineraryTeams.has(t.abbr)) return;
+
         const logoPath = getTeamLogoPath(t.abbr);
         const el = document.createElement("div");
         el.style.cssText =
@@ -340,7 +335,7 @@ export default function ItineraryMap({
           t.stadium_name || t.abbr
         );
         const marker = new Marker({ element: el })
-          .setLngLat({ lng: t.lon + offsetLng, lat: t.lat + offsetLat })
+          .setLngLat({ lng: t.lon, lat: t.lat })
           .setPopup(popup)
           .addTo(map);
         markersRef.current.push(marker);
@@ -420,15 +415,33 @@ export default function ItineraryMap({
       if (!g.lat || !g.lon) return;
       const el = document.createElement("div");
       const isVisited = visitedParks?.has(g.home_team);
+      const borderColor = isVisited ? "#16a34a" : "#2563eb";
+      const logoPath = getTeamLogoPath(g.home_team);
       el.style.cssText = `
-        width:28px;height:28px;border-radius:50%;
-        background:${isVisited ? "#16a34a" : "#2563eb"};
-        color:#fff;font-size:12px;font-weight:700;
+        width:34px;height:34px;border-radius:50%;
+        background:#fff;
         display:flex;align-items:center;justify-content:center;
-        border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.3);
-        cursor:pointer;
+        border:2.5px solid ${borderColor};box-shadow:0 2px 6px rgba(0,0,0,0.3);
+        cursor:pointer;overflow:visible;
       `;
-      el.textContent = String(i + 1);
+      if (logoPath) {
+        const img = document.createElement("img");
+        img.src = logoPath;
+        img.alt = g.home_team;
+        img.style.cssText = "width:24px;height:24px;object-fit:contain;pointer-events:none;";
+        el.appendChild(img);
+      }
+      const badge = document.createElement("div");
+      badge.style.cssText = `
+        position:absolute;top:-6px;right:-6px;min-width:18px;height:18px;
+        border-radius:9px;padding:0 4px;
+        background:${borderColor};color:#fff;
+        font-size:10px;font-weight:700;line-height:18px;text-align:center;
+        border:1.5px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.3);
+        pointer-events:none;
+      `;
+      badge.textContent = String(i + 1);
+      el.appendChild(badge);
 
       const awayLogo = getTeamLogoPath(g.away_team);
       const homeLogo = getTeamLogoPath(g.home_team);

@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const NBAI_API_KEY = process.env.NBAI_API_KEY || process.env.NEXT_PUBLIC_NBAI_API_KEY;
-
 /** NextBillion Discover API proxy. Returns places with label and lat/lng for autocomplete. */
 export async function GET(req: NextRequest) {
   const q = req.nextUrl.searchParams.get("q");
@@ -9,6 +7,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ items: [] });
   }
 
+  const NBAI_API_KEY = process.env.NBAI_API_KEY || process.env.NEXT_PUBLIC_NBAI_API_KEY;
   if (!NBAI_API_KEY) {
     return NextResponse.json({ error: "Discover API key not configured" }, { status: 500 });
   }
@@ -22,6 +21,9 @@ export async function GET(req: NextRequest) {
   url.searchParams.set("at", at);
   url.searchParams.set("limit", limit);
   url.searchParams.set("in", "countryCode:USA");
+
+  console.log("[Discover] Full URL:", url.toString());
+  console.log("[Discover] API key used:", NBAI_API_KEY ? `${NBAI_API_KEY.slice(0, 6)}...${NBAI_API_KEY.slice(-4)}` : "MISSING");
 
   try {
     const res = await fetch(url.toString(), { next: { revalidate: 0 } });
