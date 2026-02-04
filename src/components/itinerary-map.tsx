@@ -44,6 +44,8 @@ interface ItineraryMapProps {
   allBallparks?: Array<{ abbr: string; lat: number; lon: number; stadium_name: string }>;
   visitedParks?: Set<string>;
   itineraryId?: string;
+  /** Callback when a game in the side panel is clicked */
+  onGameClick?: (gameId: number) => void;
 }
 
 /** Ballparks that do not have a 3D model; do not open stadium viewer for these. (ATH = Athletics) */
@@ -187,6 +189,7 @@ export default function ItineraryMap({
   allBallparks,
   visitedParks,
   itineraryId,
+  onGameClick,
 }: ItineraryMapProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapRef = useRef<{ map: maplibregl.Map } | null>(null);
@@ -221,7 +224,7 @@ export default function ItineraryMap({
           const link = document.createElement("link");
           link.id = "maplibre-css";
           link.rel = "stylesheet";
-          link.href = "https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css";
+          link.href = "https://unpkg.com/maplibre-gl@5.17.0/dist/maplibre-gl.css";
           document.head.appendChild(link);
         }
 
@@ -249,6 +252,11 @@ export default function ItineraryMap({
           attributionControl: false,
         });
         mapRef.current = { map };
+
+        // Enable globe projection once style is loaded
+        map.on("style.load", () => {
+          map.setProjection({ type: "globe" });
+        });
 
         // Wait for the map style to fully load before signaling ready
         if (map.loaded()) {
@@ -1023,7 +1031,11 @@ export default function ItineraryMap({
                       const sAfter = stopoversAfter(i);
                       return (
                         <div key={g.game_id}>
-                          <div className="flex items-start gap-2 rounded border px-2 py-1.5 text-xs bg-card hover:bg-muted/50">
+                          <button
+                            type="button"
+                            className="w-full flex items-start gap-2 rounded border px-2 py-1.5 text-xs bg-card hover:bg-muted/50 cursor-pointer transition-colors text-left"
+                            onClick={() => onGameClick?.(g.game_id)}
+                          >
                             <span className="mt-0.5 font-bold text-muted-foreground w-4 shrink-0">{i + 1}</span>
                             <div className="min-w-0">
                               <div className="flex items-center gap-1 font-medium">
@@ -1041,7 +1053,7 @@ export default function ItineraryMap({
                               )}
                               <div className="text-muted-foreground">{fmtDate(g.date_time, g.home_team)} {fmtTime(g.date_time, g.home_team)}</div>
                             </div>
-                          </div>
+                          </button>
                           {sAfter.map((s) => (
                             <div key={`stop-${s.after_index}-${s.sort_order}`}>
                               {modeIcon(segIdx++)}

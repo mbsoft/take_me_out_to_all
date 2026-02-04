@@ -603,6 +603,10 @@ export default function ItineraryBuilderPage() {
               }))}
             visitedParks={visitedParks}
             itineraryId={id}
+            onGameClick={(gameId) => {
+              const game = itinerary.games.find((g) => g.game_id === gameId);
+              if (game) setSelectedGame(game);
+            }}
           />
         </TabsContent>
 
