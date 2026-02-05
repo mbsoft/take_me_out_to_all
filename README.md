@@ -1,7 +1,6 @@
 # Take Me Out to the Ballparks 🌍⚾
 
 [![CI](https://github.com/mbsoft/take_me_out_to_all/actions/workflows/test.yml/badge.svg)](https://github.com/mbsoft/take_me_out_to_all/actions/workflows/test.yml)
-[![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/mbsoft/ab645ee3918c6a5b481c6015f8d0141a/raw/coverage-badge.json)](https://github.com/mbsoft/take_me_out_to_all/actions)
 
 A full-stack web application for planning MLB ballpark visit itineraries for the 2026 season. Users can create optimized travel schedules to visit multiple ballparks, view game information, get ticket prices, and plan their ultimate baseball road trip.
 
