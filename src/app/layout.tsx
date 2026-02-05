@@ -56,7 +56,18 @@ export default function RootLayout({
                     <Link href="/terms" className="hover:text-foreground transition-colors">Terms</Link>
                     <Link href="/contact" className="hover:text-foreground transition-colors">Contact</Link>
                   </div>
-                  <span>&copy; {new Date().getFullYear()} All rights reserved</span>
+                  <span className="flex items-center gap-1.5">
+                    &copy; {new Date().getFullYear()} All rights reserved &middot; Powered by
+                    <a
+                      href="https://www.nextbillion.ai"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 hover:text-foreground transition-colors"
+                    >
+                      <img src="/images/nb-logo.png" alt="NextBillion.ai" width={16} height={16} />
+                      <span className="font-medium">NextBillion.ai</span>
+                    </a>
+                  </span>
                 </div>
               </footer>
             </div>

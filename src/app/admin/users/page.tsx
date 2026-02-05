@@ -92,7 +92,14 @@ export default function AdminUsersPage() {
   async function handleDelete() {
     if (!deleteTarget) return;
     setDeleting(true);
-    await fetch(`/api/admin/users/${deleteTarget.id}`, { method: "DELETE" });
+    const res = await fetch(`/api/admin/users/${deleteTarget.id}`, { method: "DELETE" });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({ error: "Unknown error" }));
+      alert(`Failed to delete user: ${data.error || "Unknown error"}`);
+      setDeleting(false);
+      setDeleteTarget(null);
+      return;
+    }
     setDeleteTarget(null);
     setDeleting(false);
     loadUsers();

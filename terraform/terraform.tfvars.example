@@ -20,6 +20,7 @@ nextauth_secret = "generate-a-random-64-character-string-for-production"
 seatgeek_client_id     = "your-seatgeek-client-id"
 seatgeek_client_secret = "your-seatgeek-client-secret"
 nbai_api_key           = "your-nextbillion-ai-api-key"
+resend_api_key         = "your-resend-api-key"
 
 # Optional: Custom Domain
 # domain_name = "example.com"

@@ -126,8 +126,10 @@ function getMinGapHours(haversineMiles: number, drivingHours?: number): number {
   return FALLBACK_MIN_GAP_DRIVE_HOURS;
 }
 
-/** Get travel mode for a leg based on haversine distance. */
-function getTravelMode(haversineMiles: number): "car" | "air" {
+/** Get travel mode for a leg based on haversine distance and itinerary travel_mode. */
+function getTravelMode(haversineMiles: number, travelMode?: string): "car" | "air" {
+  if (travelMode === "drive") return "car";
+  if (travelMode === "fly") return "air";
   return haversineMiles >= DRIVE_THRESHOLD ? "air" : "car";
 }
 
@@ -276,6 +278,7 @@ function assignGames(
   distMatrix: number[][],
   durationMatrix: number[][],
   haversineMatrix: number[][],
+  travelMode?: string,
 ): { stops: RouteStop[]; infeasible: string[] } {
   const stops: RouteStop[] = [];
   const infeasible: string[] = [];
@@ -301,7 +304,7 @@ function assignGames(
     const dist = distMatrix[currentMatrixIdx][targetIdx];
     const hDist = haversineMatrix[currentMatrixIdx][targetIdx];
     const dur = durationMatrix[currentMatrixIdx][targetIdx];
-    const mode = getTravelMode(hDist);
+    const mode = getTravelMode(hDist, travelMode);
     const minGap = getMinGapHours(hDist, dur);
     const earliestArrivalMs = currentDateMs + minGap * 3600_000;
 
@@ -342,7 +345,8 @@ export function optimizeRoute(
   startDate: string,
   parks: Park[],
   gamesByPark: Map<string, ScheduledGame[]>,
-  drivingMatrix?: DrivingMatrix
+  drivingMatrix?: DrivingMatrix,
+  travelMode?: string,
 ): OptimizedRoute {
   if (parks.length === 0) {
     return { stops: [], totalDistanceMiles: 0, estimatedDays: 0, infeasibleParks: [], segmentModes: [] };
@@ -379,7 +383,8 @@ export function optimizeRoute(
     gamesByPark,
     distMatrix,
     durationMatrix,
-    haversineMatrix
+    haversineMatrix,
+    travelMode,
   );
 
   // Combine infeasible parks from both phases
@@ -414,7 +419,7 @@ export function optimizeRoute(
     // start → first stop: use haversine for mode classification
     const firstParkIdx = parks.findIndex((p) => p.abbr === stops[0].park.abbr) + 1;
     const startHaversine = haversineMatrix[0][firstParkIdx];
-    segmentModes.push(getTravelMode(startHaversine));
+    segmentModes.push(getTravelMode(startHaversine, travelMode));
   }
   for (let i = 1; i < stops.length; i++) {
     segmentModes.push(stops[i].travelMode);
@@ -422,7 +427,7 @@ export function optimizeRoute(
   if (endLocation && stops.length > 0) {
     const lastStop = stops[stops.length - 1];
     const lastHaversine = haversine(lastStop.park.lat, lastStop.park.lon, endLocation.lat, endLocation.lon);
-    segmentModes.push(getTravelMode(lastHaversine));
+    segmentModes.push(getTravelMode(lastHaversine, travelMode));
   }
 
   return {

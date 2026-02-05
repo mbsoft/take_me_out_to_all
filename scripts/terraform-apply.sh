@@ -49,7 +49,8 @@ terraform plan \
   -var="google_client_secret=$GOOGLE_CLIENT_SECRET" \
   -var="seatgeek_client_id=$SEATGEEK_CLIENT_ID" \
   -var="seatgeek_client_secret=$SEATGEEK_CLIENT_SECRET" \
-  -var="nbai_api_key=$NEXT_PUBLIC_NBAI_API_KEY"
+  -var="nbai_api_key=$NEXT_PUBLIC_NBAI_API_KEY" \
+  -var="resend_api_key=$RESEND_API_KEY"
 
 echo -e "${YELLOW}Do you want to apply these changes? (yes/no)${NC}"
 read -r response
@@ -65,7 +66,8 @@ if [ "$response" = "yes" ]; then
     -var="google_client_secret=$GOOGLE_CLIENT_SECRET" \
     -var="seatgeek_client_id=$SEATGEEK_CLIENT_ID" \
     -var="seatgeek_client_secret=$SEATGEEK_CLIENT_SECRET" \
-    -var="nbai_api_key=$NEXT_PUBLIC_NBAI_API_KEY"
+    -var="nbai_api_key=$NEXT_PUBLIC_NBAI_API_KEY" \
+    -var="resend_api_key=$RESEND_API_KEY"
 
   echo -e "${GREEN}Terraform apply completed!${NC}"
 else

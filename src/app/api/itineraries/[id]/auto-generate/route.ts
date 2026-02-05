@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { optimizeRoute, type Park, type ScheduledGame } from "@/lib/route-optimizer";
 import { optimizeRouteWithNB, type LockedGame } from "@/lib/nb-route-optimizer";
+import { parseCustomTeams } from "@/lib/goal-utils";
 
 export async function POST(
   req: Request,
@@ -52,8 +53,17 @@ export async function POST(
 
   // Fetch target teams
   let teamsQuery = db.from("teams").select("*");
-  if (itinerary.goal === "al") teamsQuery = teamsQuery.eq("league", "AL");
-  if (itinerary.goal === "nl") teamsQuery = teamsQuery.eq("league", "NL");
+  if (itinerary.goal === "al") {
+    teamsQuery = teamsQuery.eq("league", "AL");
+  } else if (itinerary.goal === "nl") {
+    teamsQuery = teamsQuery.eq("league", "NL");
+  } else if (itinerary.goal === "custom") {
+    const customTeams = parseCustomTeams(itinerary.custom_teams);
+    if (customTeams.length === 0) {
+      return NextResponse.json({ error: "No custom teams selected" }, { status: 422 });
+    }
+    teamsQuery = teamsQuery.in("abbr", customTeams);
+  }
   const { data: teams } = await teamsQuery;
 
   if (!teams || teams.length === 0) {
@@ -162,6 +172,7 @@ export async function POST(
       gamesByPark,
       bodyDescription,
       lockedGames.length > 0 ? lockedGames : undefined,
+      itinerary.travel_mode as string,
     );
   } catch (nbError) {
     console.warn("[Auto-generate] NB.ai optimization failed, falling back to local optimizer:", nbError);
@@ -170,7 +181,9 @@ export async function POST(
       endLocation,
       effectiveStartDate as string,
       parks,
-      gamesByPark
+      gamesByPark,
+      undefined,
+      itinerary.travel_mode as string,
     );
   }
 

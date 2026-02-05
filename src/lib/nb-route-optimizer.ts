@@ -367,6 +367,7 @@ export function parseOptimizationResult(
   jobGameMap: Map<number, JobGameMapping>,
   startDate: string,
   parks: Park[],
+  travelMode?: string,
 ): OptimizedRoute {
   if (!result.result || result.result.routes.length === 0) {
     return { stops: [], totalDistanceMiles: 0, estimatedDays: 0, infeasibleParks: [], segmentModes: [] };
@@ -398,9 +399,12 @@ export function parseOptimizationResult(
     const game = identifySelectedGame(step.arrival + step.waiting_time, jobEntry.games);
     const distanceMiles = Math.round(step.distance * METERS_TO_MILES);
 
-    // Classify car vs air using haversine between previous and current location
+    // Classify car vs air based on itinerary travel_mode setting
     const hDist = haversine(previousLat, previousLon, jobEntry.park.lat, jobEntry.park.lon);
-    const travelMode: "car" | "air" = hDist >= DRIVE_THRESHOLD_MILES ? "air" : "car";
+    const legMode: "car" | "air" =
+      travelMode === "drive" ? "car" :
+      travelMode === "fly" ? "air" :
+      hDist >= DRIVE_THRESHOLD_MILES ? "air" : "car";
 
     const gapHours = Math.round((step.arrival - previousEpoch) / 3600);
 
@@ -408,11 +412,11 @@ export function parseOptimizationResult(
       park: jobEntry.park,
       game,
       distanceFromPrevious: distanceMiles,
-      travelMode,
+      travelMode: legMode,
       gapHours,
     });
 
-    segmentModes.push(travelMode);
+    segmentModes.push(legMode);
     previousEpoch = step.arrival + step.service;
     previousLat = jobEntry.park.lat;
     previousLon = jobEntry.park.lon;
@@ -423,7 +427,11 @@ export function parseOptimizationResult(
   if (endStep && stops.length > 0) {
     const lastPark = stops[stops.length - 1].park;
     const endHDist = haversine(lastPark.lat, lastPark.lon, endStep.location[0], endStep.location[1]);
-    segmentModes.push(endHDist >= DRIVE_THRESHOLD_MILES ? "air" : "car");
+    const endMode: "car" | "air" =
+      travelMode === "drive" ? "car" :
+      travelMode === "fly" ? "air" :
+      endHDist >= DRIVE_THRESHOLD_MILES ? "air" : "car";
+    segmentModes.push(endMode);
   }
 
   // Identify infeasible parks
@@ -473,6 +481,7 @@ export async function optimizeRouteWithNB(
   gamesByPark: Map<string, ScheduledGame[]>,
   description?: string,
   lockedGames?: LockedGame[],
+  travelMode?: string,
 ): Promise<OptimizedRoute> {
   const { request, jobGameMap } = buildOptimizationRequest(
     startLocation,
@@ -496,5 +505,5 @@ export async function optimizeRouteWithNB(
     throw new Error(`NB.ai optimization returned error code: ${result.result?.code}`);
   }
 
-  return parseOptimizationResult(result, jobGameMap, startDate, parks);
+  return parseOptimizationResult(result, jobGameMap, startDate, parks, travelMode);
 }

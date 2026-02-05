@@ -131,9 +131,6 @@ function haversineMeters(a: Waypoint, b: Waypoint): number {
 
 export async function POST(req: NextRequest) {
   const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
 
   if (!NBAI_API_KEY) {
     return NextResponse.json({ error: "Directions API key not configured" }, { status: 500 });
@@ -146,11 +143,29 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON in request body" }, { status: 400 });
   }
 
-  const { waypoints, segment_modes: segmentModes, itineraryId } = body as {
+  const { waypoints, segment_modes: segmentModes, itineraryId, shareToken } = body as {
     waypoints: Waypoint[];
     segment_modes?: string[];
     itineraryId?: string;
+    shareToken?: string;
   };
+
+  // Auth: require either a valid session or a valid share token
+  let userId = session?.user?.id || null;
+  if (!userId && shareToken) {
+    const { data: shared } = await db
+      .from("itineraries")
+      .select("user_id")
+      .eq("share_token", shareToken)
+      .single();
+    if (!shared) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    userId = shared.user_id as string;
+  }
+  if (!userId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
   if (!waypoints || waypoints.length < 2) {
     return NextResponse.json({ error: "At least 2 waypoints required" }, { status: 400 });
   }
@@ -169,7 +184,7 @@ export async function POST(req: NextRequest) {
       .from("itineraries")
       .select("route_geometry")
       .eq("id", itineraryId)
-      .eq("user_id", session.user.id)
+      .eq("user_id", userId)
       .single();
 
     if (itinerary?.route_geometry) {
@@ -237,7 +252,7 @@ export async function POST(req: NextRequest) {
           method: "POST",
           status_code: res.status,
           response_time_ms: Date.now() - fetchStart,
-          user_id: session.user.id,
+          user_id: userId,
         });
         if (!res.ok) {
           console.error(`Directions API error: ${res.status}`);
@@ -298,7 +313,7 @@ export async function POST(req: NextRequest) {
       .from("itineraries")
       .update({ route_geometry: JSON.stringify(cacheData) })
       .eq("id", itineraryId)
-      .eq("user_id", session.user.id);
+      .eq("user_id", userId);
     console.log("Cached directions for itinerary:", itineraryId, "hash:", currentRouteHash);
   }
 

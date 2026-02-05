@@ -8,11 +8,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PlaceAutocomplete, type PlaceResult } from "@/components/place-autocomplete";
+import { TeamPicker } from "@/components/team-picker";
 
 export default function NewItineraryPage() {
   const { status } = useSession();
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [goal, setGoal] = useState("all");
+  const [selectedTeams, setSelectedTeams] = useState<string[]>([]);
   const [startLocation, setStartLocation] = useState("");
   const [startPlace, setStartPlace] = useState<PlaceResult | null>(null);
   const [endLocation, setEndLocation] = useState("");
@@ -33,7 +36,8 @@ export default function NewItineraryPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: form.get("name"),
-          goal: form.get("goal"),
+          goal,
+          custom_teams: goal === "custom" ? selectedTeams : null,
           travel_mode: form.get("travel_mode"),
           start_date: form.get("start_date"),
           start_location: startLocation || null,
@@ -71,7 +75,7 @@ export default function NewItineraryPage() {
 
   return (
     <div className="flex min-h-[60vh] items-center justify-center">
-      <Card className="w-full max-w-lg">
+      <Card className={`w-full ${goal === "custom" ? "max-w-2xl" : "max-w-lg"}`}>
         <CardHeader>
           <CardTitle>Create New Itinerary</CardTitle>
         </CardHeader>
@@ -85,15 +89,22 @@ export default function NewItineraryPage() {
               <Label htmlFor="goal">Goal</Label>
               <select
                 id="goal"
-                name="goal"
                 className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                defaultValue="all"
+                value={goal}
+                onChange={(e) => setGoal(e.target.value)}
               >
                 <option value="all">All 30 Ballparks</option>
                 <option value="al">American League (15)</option>
                 <option value="nl">National League (15)</option>
+                <option value="custom">Custom Selection</option>
               </select>
             </div>
+            {goal === "custom" && (
+              <TeamPicker
+                selectedTeams={selectedTeams}
+                onChange={setSelectedTeams}
+              />
+            )}
             <div>
               <Label htmlFor="travel_mode">Travel Mode</Label>
               <select
@@ -104,7 +115,7 @@ export default function NewItineraryPage() {
               >
                 <option value="drive">Drive</option>
                 <option value="fly">Fly</option>
-                <option value="mixed">Mixed (fly &gt; 400 mi)</option>
+                <option value="mixed">Mixed (fly &gt; 500 mi)</option>
               </select>
             </div>
             <div>
@@ -144,7 +155,7 @@ export default function NewItineraryPage() {
                 placeholder="Los Angeles, CA"
               />
             </div>
-            <Button type="submit" className="w-full" disabled={loading}>
+            <Button type="submit" className="w-full" disabled={loading || (goal === "custom" && selectedTeams.length === 0)}>
               {loading ? "Creating..." : "Create Itinerary"}
             </Button>
           </form>

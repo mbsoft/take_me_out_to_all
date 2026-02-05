@@ -45,6 +45,11 @@ import {
   id = "projects/takemeout-486217/secrets/nbai-api-key"
 }
 
+import {
+  to = module.secrets.google_secret_manager_secret.secrets["resend_api_key"]
+  id = "projects/takemeout-486217/secrets/resend-api-key"
+}
+
 # Get current project data
 data "google_project" "current" {
   project_id = var.project_id
@@ -89,6 +94,7 @@ module "secrets" {
     "seatgeek_client_id",
     "seatgeek_client_secret",
     "nbai_api_key",
+    "resend_api_key",
   ])
   secret_values = {
     supabase_url              = var.supabase_url
@@ -99,6 +105,7 @@ module "secrets" {
     seatgeek_client_id        = var.seatgeek_client_id
     seatgeek_client_secret    = var.seatgeek_client_secret
     nbai_api_key              = var.nbai_api_key
+    resend_api_key            = var.resend_api_key
   }
 
   depends_on = [google_project_service.required_apis]
@@ -117,6 +124,8 @@ module "cloud_run" {
     NODE_ENV                = "production"
     NEXT_TELEMETRY_DISABLED = "1"
     AUTH_TRUST_HOST         = "true"
+    NEXT_PUBLIC_APP_URL     = "https://takemeout.mbsoft.com"
+    EMAIL_FROM              = "noreply@mbsoft.com"
   }
 
   secret_env_vars = {
@@ -128,6 +137,7 @@ module "cloud_run" {
     SEATGEEK_CLIENT_ID        = module.secrets.secret_ids["seatgeek_client_id"]
     SEATGEEK_CLIENT_SECRET    = module.secrets.secret_ids["seatgeek_client_secret"]
     NBAI_API_KEY              = module.secrets.secret_ids["nbai_api_key"]
+    RESEND_API_KEY            = module.secrets.secret_ids["resend_api_key"]
   }
 
   # Cloud Run config optimized for free tier
@@ -135,7 +145,7 @@ module "cloud_run" {
   max_instances = 10
   cpu           = "1"
   memory        = "512Mi"
-  timeout       = 60
+  timeout       = 300
 
   # Public access (adjust for your needs)
   allow_unauthenticated = true

@@ -75,6 +75,12 @@ variable "nbai_api_key" {
   sensitive   = true
 }
 
+variable "resend_api_key" {
+  description = "Resend Email API Key"
+  type        = string
+  sensitive   = true
+}
+
 variable "domain_name" {
   description = "Custom domain (optional)"
   type        = string

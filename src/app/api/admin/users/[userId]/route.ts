@@ -93,6 +93,34 @@ export async function DELETE(
     .eq("id", userId)
     .single();
 
+  // Explicitly delete dependent data to avoid foreign key constraint failures
+  // (in case CASCADE constraints were not applied via migration)
+
+  // 1. Get user's itinerary IDs
+  const { data: userItineraries } = await db
+    .from("itineraries")
+    .select("id")
+    .eq("user_id", userId);
+
+  if (userItineraries && userItineraries.length > 0) {
+    const itIds = userItineraries.map((it) => it.id);
+
+    // 2. Delete itinerary-dependent data (photos, games, stopovers)
+    await db.from("itinerary_game_photos").delete().in("itinerary_id", itIds);
+    await db.from("itinerary_games").delete().in("itinerary_id", itIds);
+    await db.from("itinerary_stopovers").delete().in("itinerary_id", itIds);
+
+    // 3. Delete itineraries
+    await db.from("itineraries").delete().eq("user_id", userId);
+  }
+
+  // 4. Nullify API usage log references
+  await db.from("api_usage_log").update({ user_id: null }).eq("user_id", userId);
+
+  // 5. Remove audit log entries where this user was the admin
+  await db.from("admin_audit_log").delete().eq("admin_id", userId);
+
+  // 6. Delete the user
   const { error } = await db
     .from("users")
     .delete()
@@ -102,7 +130,8 @@ export async function DELETE(
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  await logAdminAction(check.userId, "delete_user", "user", userId, {
+  // Log after successful deletion (use a fire-and-forget since user is gone)
+  logAdminAction(check.userId, "delete_user", "user", userId, {
     email: user?.email,
   });
 

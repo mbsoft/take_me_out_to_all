@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { haversine, estimateTravelTime } from "@/lib/haversine";
+import { parseCustomTeams } from "@/lib/goal-utils";
 
 /**
  * Intelligent game suggestion algorithm
@@ -65,12 +66,18 @@ export async function GET(req: NextRequest) {
   }
 
   const visitedParks = new Set(addedFiltered.map((r: any) => r.home_team as string));
-  const goalFilter = itinerary.goal === "al" ? "AL" : itinerary.goal === "nl" ? "NL" : null;
 
   // Get target teams
   let teamsQuery = db.from("teams").select("*");
-  if (goalFilter) {
-    teamsQuery = teamsQuery.eq("league", goalFilter);
+  if (itinerary.goal === "al") {
+    teamsQuery = teamsQuery.eq("league", "AL");
+  } else if (itinerary.goal === "nl") {
+    teamsQuery = teamsQuery.eq("league", "NL");
+  } else if (itinerary.goal === "custom") {
+    const customTeams = parseCustomTeams(itinerary.custom_teams);
+    if (customTeams.length > 0) {
+      teamsQuery = teamsQuery.in("abbr", customTeams);
+    }
   }
   const { data: allTeams } = await teamsQuery;
   const unvisitedTeams = (allTeams || []).filter((t: any) => !visitedParks.has(t.abbr as string));

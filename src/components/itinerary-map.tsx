@@ -2,15 +2,8 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { getTeamLogoPath } from "@/lib/team-logos";
-import { ChevronLeft, ChevronRight, Car, Plane, MapPin, Loader2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Car, Plane, MapPin, Loader2, Lock } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { StadiumViewer } from "@/components/stadium-viewer";
 import { useTheme } from "@/components/theme-provider";
 import type maplibregl from "maplibre-gl";
 
@@ -23,6 +16,7 @@ interface MapGame {
   date_time: string;
   lat?: number;
   lon?: number;
+  locked?: boolean;
 }
 
 interface MapStopover {
@@ -44,12 +38,13 @@ interface ItineraryMapProps {
   allBallparks?: Array<{ abbr: string; lat: number; lon: number; stadium_name: string }>;
   visitedParks?: Set<string>;
   itineraryId?: string;
+  /** Share token for public shared itinerary views (bypasses auth on directions API) */
+  shareToken?: string;
   /** Callback when a game in the side panel is clicked */
   onGameClick?: (gameId: number) => void;
+  /** Callback when a segment's travel mode is toggled in the side panel */
+  onSegmentModeToggle?: (segmentIndex: number, newMode: "car" | "air") => void;
 }
-
-/** Ballparks that do not have a 3D model; do not open stadium viewer for these. (ATH = Athletics) */
-const BALLPARKS_WITHOUT_3D_MODEL = new Set(["ATH"]);
 
 /** MLB team timezone offsets from UTC (standard time, adjust for DST) */
 const TEAM_TIMEZONES: Record<string, string> = {
@@ -189,7 +184,9 @@ export default function ItineraryMap({
   allBallparks,
   visitedParks,
   itineraryId,
+  shareToken,
   onGameClick,
+  onSegmentModeToggle,
 }: ItineraryMapProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapRef = useRef<{ map: maplibregl.Map } | null>(null);
@@ -203,10 +200,6 @@ export default function ItineraryMap({
     drivingDuration: number;
     airDistance: number;
     airDuration: number;
-  } | null>(null);
-  const [selectedBallpark, setSelectedBallpark] = useState<{
-    abbr: string;
-    stadium_name: string;
   } | null>(null);
   const [panelOpen, setPanelOpen] = useState(true);
   const [loadingRoute, setLoadingRoute] = useState(false);
@@ -319,7 +312,7 @@ export default function ItineraryMap({
         const logoPath = getTeamLogoPath(t.abbr);
         const el = document.createElement("div");
         el.style.cssText =
-          "width:28px;height:28px;border-radius:50%;overflow:hidden;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.25);display:flex;align-items:center;justify-content:center;background:#fff;cursor:pointer;";
+          "width:28px;height:28px;border-radius:50%;overflow:hidden;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.25);display:flex;align-items:center;justify-content:center;background:#fff;";
         if (logoPath) {
           const img = document.createElement("img");
           img.src = logoPath;
@@ -333,12 +326,6 @@ export default function ItineraryMap({
           el.style.fontWeight = "700";
           el.style.color = "#fff";
         }
-        el.addEventListener("click", (e) => {
-          e.stopPropagation();
-          if (!BALLPARKS_WITHOUT_3D_MODEL.has(t.abbr)) {
-            setSelectedBallpark({ abbr: t.abbr, stadium_name: t.stadium_name || t.abbr });
-          }
-        });
         const popup = new Popup({ offset: 8, closeButton: false }).setText(
           t.stadium_name || t.abbr
         );
@@ -577,6 +564,7 @@ export default function ItineraryMap({
             waypoints,
             segment_modes: segment_modes_expanded.slice(0, numSegments),
             itineraryId,
+            shareToken,
           }),
         });
 
@@ -725,7 +713,7 @@ export default function ItineraryMap({
         setLoadingRoute(false);
       }
     }
-  }, [games, stopovers, segmentModes, startLocation, endLocation, itineraryId, renderMarkers]);
+  }, [games, stopovers, segmentModes, startLocation, endLocation, itineraryId, shareToken, renderMarkers]);
 
   // Re-render whenever the map is ready or data changes
   useEffect(() => {
@@ -859,6 +847,7 @@ export default function ItineraryMap({
                 waypoints,
                 segment_modes: segment_modes_expanded.slice(0, numSegments),
                 itineraryId,
+                shareToken,
               }),
             });
 
@@ -966,11 +955,11 @@ export default function ItineraryMap({
         }
       }, 100);
     });
-  }, [theme, mapReady, renderMarkers, games, stopovers, segmentModes, startLocation, endLocation, itineraryId]);
+  }, [theme, mapReady, renderMarkers, games, stopovers, segmentModes, startLocation, endLocation, itineraryId, shareToken]);
 
   return (
     <div className="relative">
-      <div ref={mapContainer} className="w-full rounded-lg border h-[calc(100vh-260px)] min-h-[400px]" />
+      <div ref={mapContainer} className="w-full rounded-lg border h-[calc(90vh-260px)] min-h-[400px]" />
 
       {/* Route loading spinner */}
       {loadingRoute && (
@@ -1005,10 +994,24 @@ export default function ItineraryMap({
                 const fmtTime = (dt: string, homeTeam: string) => formatLocalTime(dt, homeTeam);
                 const modeIcon = (idx: number) => {
                   const mode = segmentModes?.[idx] ?? "car";
+                  if (onSegmentModeToggle) {
+                    return (
+                      <button
+                        type="button"
+                        className="flex items-center justify-center gap-1 py-1 text-muted-foreground hover:text-foreground transition-colors w-full group"
+                        onClick={() => onSegmentModeToggle(idx, mode === "car" ? "air" : "car")}
+                        title={`Switch to ${mode === "car" ? "air" : "driving"}`}
+                      >
+                        <div className="h-px w-6 bg-border" />
+                        {mode === "air" ? <Plane className="h-3.5 w-3.5 text-blue-500" /> : <Car className="h-3.5 w-3.5" />}
+                        <div className="h-px w-6 bg-border" />
+                      </button>
+                    );
+                  }
                   return (
                     <div className="flex items-center justify-center gap-1 py-1 text-muted-foreground">
                       <div className="h-px w-6 bg-border" />
-                      {mode === "air" ? <Plane className="h-3.5 w-3.5" /> : <Car className="h-3.5 w-3.5" />}
+                      {mode === "air" ? <Plane className="h-3.5 w-3.5 text-blue-500" /> : <Car className="h-3.5 w-3.5" />}
                       <div className="h-px w-6 bg-border" />
                     </div>
                   );
@@ -1038,7 +1041,7 @@ export default function ItineraryMap({
                             onClick={() => onGameClick?.(g.game_id)}
                           >
                             <span className="mt-0.5 font-bold text-muted-foreground w-4 shrink-0">{i + 1}</span>
-                            <div className="min-w-0">
+                            <div className="min-w-0 flex-1">
                               <div className="flex items-center gap-1 font-medium">
                                 {g.home_team && (
                                   <img src={getTeamLogoPath(g.away_team)} alt={g.away_team} className="h-4 w-4" />
@@ -1048,6 +1051,7 @@ export default function ItineraryMap({
                                   <img src={getTeamLogoPath(g.home_team)} alt={g.home_team} className="h-4 w-4" />
                                 )}
                                 <span className="ml-0.5 truncate">{g.away_team} @ {g.home_team}</span>
+                                {g.locked && <Lock className="h-3 w-3 text-amber-500 shrink-0 ml-auto" />}
                               </div>
                               {g.stadium_name && (
                                 <div className="text-muted-foreground truncate">{g.stadium_name}</div>
@@ -1137,22 +1141,6 @@ export default function ItineraryMap({
           className="h-6 w-auto rounded opacity-80 hover:opacity-100 transition-opacity"
         />
       </a>
-      <Dialog open={!!selectedBallpark} onOpenChange={(open) => !open && setSelectedBallpark(null)}>
-        <DialogContent className="max-w-2xl p-0 overflow-hidden" showCloseButton>
-          {selectedBallpark && (
-            <>
-              <DialogHeader className="px-6 pt-6 pb-2">
-                <DialogTitle>{selectedBallpark.stadium_name}</DialogTitle>
-              </DialogHeader>
-              <StadiumViewer
-                abbr={selectedBallpark.abbr}
-                stadiumName={selectedBallpark.stadium_name}
-                className="px-6 pb-6"
-              />
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

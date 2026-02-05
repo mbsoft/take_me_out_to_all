@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { signIn } from "next-auth/react";
+import { signIn } from "next-auth/react"; // used for Google OAuth
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
@@ -37,14 +37,9 @@ export default function RegisterPage() {
       return;
     }
 
-    // Auto sign in
-    await signIn("credentials", {
-      email: form.get("email"),
-      password: form.get("password"),
-      redirect: false,
-    });
+    // Redirect to verify email page
     setLoading(false);
-    router.push("/dashboard");
+    router.push(`/verify-email?email=${encodeURIComponent(form.get("email") as string)}`);
   }
 
   return (
@@ -95,7 +90,7 @@ export default function RegisterPage() {
             type="button"
             variant="outline"
             className="w-full"
-            onClick={() => signIn("google", { callbackUrl: "/dashboard" })}
+            onClick={() => signIn("google", { callbackUrl: "/onboarding" })}
           >
             <svg className="mr-2 h-4 w-4" viewBox="0 0 24 24">
               <path

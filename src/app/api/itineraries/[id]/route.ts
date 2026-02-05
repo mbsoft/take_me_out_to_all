@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { parseCustomTeams } from "@/lib/goal-utils";
 
 export async function GET(
   _req: Request,
@@ -94,11 +95,14 @@ export async function GET(
     }
   }
 
+  const custom_teams = parseCustomTeams(itinerary.custom_teams);
+
   return NextResponse.json({
     ...itinerary,
     games: transformedGames,
     stopovers: stopovers ?? [],
     segment_modes,
+    custom_teams: custom_teams.length > 0 ? custom_teams : null,
   });
 }
 
@@ -131,6 +135,11 @@ export async function PUT(
     route_geometry: null,
     updated_at: new Date().toISOString(),
   };
+  if (body.goal === "custom" && Array.isArray(body.custom_teams)) {
+    update.custom_teams = JSON.stringify(body.custom_teams);
+  } else if (body.goal !== "custom") {
+    update.custom_teams = null;
+  }
   if (segment_modes_json !== undefined) update.segment_modes = segment_modes_json;
   const { error } = await db
     .from("itineraries")

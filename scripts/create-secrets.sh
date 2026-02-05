@@ -50,5 +50,6 @@ create_secret "google-client-secret" "$GOOGLE_CLIENT_SECRET"
 create_secret "seatgeek-client-id" "$SEATGEEK_CLIENT_ID"
 create_secret "seatgeek-client-secret" "$SEATGEEK_CLIENT_SECRET"
 create_secret "nbai-api-key" "$NEXT_PUBLIC_NBAI_API_KEY"
+create_secret "resend-api-key" "$RESEND_API_KEY"
 
 echo -e "${GREEN}All secrets created successfully!${NC}"

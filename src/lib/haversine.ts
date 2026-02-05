@@ -26,8 +26,8 @@ export function estimateTravelTime(
   if (mode === "drive") {
     return distanceMiles / 55; // average 55 mph
   }
-  // mixed: fly if > 400 miles, drive otherwise
-  return distanceMiles > 400
+  // mixed: fly if > 500 miles, drive otherwise
+  return distanceMiles > 500
     ? 2.5 + distanceMiles / 500
     : distanceMiles / 55;
 }

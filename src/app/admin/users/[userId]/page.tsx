@@ -94,7 +94,14 @@ export default function AdminUserDetailPage() {
 
   async function handleDelete() {
     setDeleting(true);
-    await fetch(`/api/admin/users/${userId}`, { method: "DELETE" });
+    const res = await fetch(`/api/admin/users/${userId}`, { method: "DELETE" });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({ error: "Unknown error" }));
+      alert(`Failed to delete user: ${data.error || "Unknown error"}`);
+      setDeleting(false);
+      setDeleteOpen(false);
+      return;
+    }
     router.push("/admin/users");
   }
 

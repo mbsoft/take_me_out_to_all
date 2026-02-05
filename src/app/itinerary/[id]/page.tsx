@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter, useParams } from "next/navigation";
 import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd";
-import { Trash2, Map, List, Check, MapPin, Car, Plane, Sparkles, Loader2, Pencil, Lock, Unlock } from "lucide-react";
+import { Trash2, Map, List, Check, MapPin, Car, Plane, Sparkles, Loader2, Pencil, Lock, Unlock, Share2, Link2, Link2Off, BookmarkPlus } from "lucide-react";
 import dynamic from "next/dynamic";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -26,6 +26,7 @@ import {
 import { TeamLogo, GameMatchup } from "@/components/team-logo";
 import { PlaceAutocomplete, type PlaceResult } from "@/components/place-autocomplete";
 import { GameDetailPanel } from "@/components/game-detail-panel";
+import { goalLabel, filterTeamsByGoal } from "@/lib/goal-utils";
 
 const ItineraryMap = dynamic(() => import("@/components/itinerary-map"), {
   ssr: false,
@@ -80,6 +81,8 @@ interface Itinerary {
   games: Game[];
   stopovers?: Stopover[];
   segment_modes?: string[];
+  custom_teams?: string[] | null;
+  share_token?: string | null;
 }
 
 interface Suggestion {
@@ -157,6 +160,9 @@ export default function ItineraryBuilderPage() {
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState<"list" | "map">("list");
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [shareToken, setShareToken] = useState<string | null>(null);
+  const [shareLoading, setShareLoading] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [stopoverAddingAfterIndex, setStopoverAddingAfterIndex] = useState<number | null>(null);
   const [stopoverSearchValue, setStopoverSearchValue] = useState("");
@@ -177,6 +183,13 @@ export default function ItineraryBuilderPage() {
   const [startLocationSearch, setStartLocationSearch] = useState("");
   const [editingEndLocation, setEditingEndLocation] = useState(false);
   const [endLocationSearch, setEndLocationSearch] = useState("");
+  const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
+  const [templateName, setTemplateName] = useState("");
+  const [templateDescription, setTemplateDescription] = useState("");
+  const [savingTemplate, setSavingTemplate] = useState(false);
+  const [templateSaved, setTemplateSaved] = useState(false);
+  const [editingName, setEditingName] = useState(false);
+  const [nameEditValue, setNameEditValue] = useState("");
 
   useEffect(() => {
     if (status === "unauthenticated") router.push("/login");
@@ -187,11 +200,16 @@ export default function ItineraryBuilderPage() {
     if (!res.ok) return undefined;
     const data = await res.json();
     setItinerary(data);
+    setShareToken(data.share_token ?? null);
 
-    // Set start date filter from itinerary's start_date if available
-    if (data.start_date) {
-      const dateStr = data.start_date.split("T")[0];
-      setStartDate(dateStr);
+    // Set start date filter: use last game's date if games exist, otherwise itinerary's start_date
+    if (data.games?.length > 0) {
+      const lastGame = data.games[data.games.length - 1];
+      if (lastGame.date_time) {
+        setStartDate(lastGame.date_time.split("T")[0]);
+      }
+    } else if (data.start_date) {
+      setStartDate(data.start_date.split("T")[0]);
     }
     return data;
   }, [id]);
@@ -272,19 +290,26 @@ export default function ItineraryBuilderPage() {
     });
   }
 
+  const [clearing, setClearing] = useState(false);
+
   async function clearAllGames() {
     if (!itinerary || itinerary.games.length === 0) return;
     const unlocked = itinerary.games.filter((g) => !g.locked);
     if (unlocked.length === 0) return;
-    for (const g of unlocked) {
-      await fetch(`/api/itineraries/${id}/games/${g.game_id}`, { method: "DELETE" });
+    setClearing(true);
+    try {
+      for (const g of unlocked) {
+        await fetch(`/api/itineraries/${id}/games/${g.game_id}`, { method: "DELETE" });
+      }
+      // Clear stopovers too
+      for (const s of itinerary.stopovers ?? []) {
+        await fetch(`/api/itineraries/${id}/stopovers/${s.id}`, { method: "DELETE" });
+      }
+      await loadItinerary();
+      await loadSuggestions();
+    } finally {
+      setClearing(false);
     }
-    // Clear stopovers too
-    for (const s of itinerary.stopovers ?? []) {
-      await fetch(`/api/itineraries/${id}/stopovers/${s.id}`, { method: "DELETE" });
-    }
-    await loadItinerary();
-    await loadSuggestions();
   }
 
   async function addStopover(afterIndex: number, place: PlaceResult) {
@@ -312,6 +337,7 @@ export default function ItineraryBuilderPage() {
         body: JSON.stringify({
           name: loaded.name,
           goal: loaded.goal,
+          custom_teams: loaded.custom_teams ?? null,
           travel_mode: loaded.travel_mode,
           start_date: loaded.start_date ?? null,
           start_location: loaded.start_location ?? null,
@@ -351,6 +377,7 @@ export default function ItineraryBuilderPage() {
         body: JSON.stringify({
           name: data.name,
           goal: data.goal,
+          custom_teams: data.custom_teams ?? null,
           travel_mode: data.travel_mode,
           start_date: data.start_date ?? null,
           start_location: data.start_location ?? null,
@@ -386,6 +413,7 @@ export default function ItineraryBuilderPage() {
       body: JSON.stringify({
         name: itinerary.name,
         goal: itinerary.goal,
+        custom_teams: itinerary.custom_teams ?? null,
         travel_mode: itinerary.travel_mode,
         start_date: itinerary.start_date ?? null,
         start_location: itinerary.start_location ?? null,
@@ -421,6 +449,7 @@ export default function ItineraryBuilderPage() {
       body: JSON.stringify({
         name: itinerary.name,
         goal: itinerary.goal,
+        custom_teams: itinerary.custom_teams ?? null,
         travel_mode: itinerary.travel_mode,
         start_date: itinerary.start_date ?? null,
         start_location: which === "start" ? place.label : itinerary.start_location ?? null,
@@ -503,6 +532,37 @@ export default function ItineraryBuilderPage() {
     }
   }
 
+  async function saveName(newName: string) {
+    const trimmed = newName.trim();
+    if (!trimmed || !itinerary || trimmed === itinerary.name) {
+      setEditingName(false);
+      return;
+    }
+    setItinerary((prev) => prev ? { ...prev, name: trimmed } : prev);
+    setEditingName(false);
+    const res = await fetch(`/api/itineraries/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: trimmed,
+        goal: itinerary.goal,
+        custom_teams: itinerary.custom_teams ?? null,
+        travel_mode: itinerary.travel_mode,
+        start_date: itinerary.start_date ?? null,
+        start_location: itinerary.start_location ?? null,
+        start_lat: itinerary.start_lat ?? null,
+        start_lon: itinerary.start_lon ?? null,
+        end_location: itinerary.end_location ?? null,
+        end_lat: itinerary.end_lat ?? null,
+        end_lon: itinerary.end_lon ?? null,
+        segment_modes: itinerary.segment_modes ?? [],
+      }),
+    });
+    if (!res.ok) {
+      loadItinerary();
+    }
+  }
+
   if (loading || !itinerary) {
     return <p className="text-center py-12 text-muted-foreground">Loading...</p>;
   }
@@ -536,11 +596,7 @@ export default function ItineraryBuilderPage() {
     return next;
   })();
 
-  const targetTeams = teams.filter((t) => {
-    if (itinerary.goal === "al") return t.league === "AL";
-    if (itinerary.goal === "nl") return t.league === "NL";
-    return true;
-  });
+  const targetTeams = filterTeamsByGoal(teams, itinerary.goal, itinerary.custom_teams ?? undefined);
   const totalParks = targetTeams.length;
   const progressPct = totalParks > 0 ? (visitedParks.size / totalParks) * 100 : 0;
 
@@ -551,9 +607,29 @@ export default function ItineraryBuilderPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">{itinerary.name}</h1>
+          {editingName ? (
+            <input
+              autoFocus
+              className="text-2xl font-bold bg-transparent border-b-2 border-primary outline-none w-full max-w-md"
+              value={nameEditValue}
+              onChange={(e) => setNameEditValue(e.target.value)}
+              onBlur={() => saveName(nameEditValue)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") saveName(nameEditValue);
+                if (e.key === "Escape") setEditingName(false);
+              }}
+            />
+          ) : (
+            <h1
+              className="text-2xl font-bold cursor-pointer hover:text-primary/80 transition-colors"
+              onClick={() => { setNameEditValue(itinerary.name); setEditingName(true); }}
+              title="Click to rename"
+            >
+              {itinerary.name}
+            </h1>
+          )}
           <p className="text-sm text-muted-foreground">
-            {itinerary.goal === "all" ? "All 30 Parks" : itinerary.goal === "al" ? "AL Parks" : "NL Parks"}
+            {goalLabel(itinerary.goal, itinerary.custom_teams)}
             {" "}&middot; {itinerary.travel_mode}
           </p>
         </div>
@@ -561,6 +637,73 @@ export default function ItineraryBuilderPage() {
           <Button variant="outline" onClick={() => router.push("/dashboard")}>
             Back to Dashboard
           </Button>
+          {itinerary.games.length > 0 && (
+            shareToken ? (
+              <div className="flex gap-1">
+                <Button
+                  variant="outline"
+                  onClick={async () => {
+                    const url = `${window.location.origin}/share/${shareToken}`;
+                    await navigator.clipboard.writeText(url);
+                    setShareCopied(true);
+                    setTimeout(() => setShareCopied(false), 2000);
+                  }}
+                >
+                  <Link2 className="h-4 w-4 mr-2" />
+                  {shareCopied ? "Copied!" : "Copy Link"}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  title="Revoke share link"
+                  onClick={async () => {
+                    await fetch(`/api/itineraries/${id}/share`, { method: "DELETE" });
+                    setShareToken(null);
+                  }}
+                >
+                  <Link2Off className="h-4 w-4" />
+                </Button>
+              </div>
+            ) : (
+              <Button
+                variant="outline"
+                disabled={shareLoading}
+                onClick={async () => {
+                  setShareLoading(true);
+                  try {
+                    const res = await fetch(`/api/itineraries/${id}/share`, { method: "POST" });
+                    if (res.ok) {
+                      const data = await res.json();
+                      setShareToken(data.share_token);
+                      const url = `${window.location.origin}/share/${data.share_token}`;
+                      await navigator.clipboard.writeText(url);
+                      setShareCopied(true);
+                      setTimeout(() => setShareCopied(false), 2000);
+                    }
+                  } finally {
+                    setShareLoading(false);
+                  }
+                }}
+              >
+                <Share2 className="h-4 w-4 mr-2" />
+                {shareLoading ? "Sharing..." : shareCopied ? "Copied!" : "Share"}
+              </Button>
+            )
+          )}
+          {session?.user?.role === "admin" && itinerary.games.length > 0 && (
+            <Button
+              variant="outline"
+              onClick={() => {
+                setTemplateName(itinerary.name);
+                setTemplateDescription("");
+                setTemplateSaved(false);
+                setTemplateDialogOpen(true);
+              }}
+            >
+              <BookmarkPlus className="h-4 w-4 mr-2" />
+              Save as Template
+            </Button>
+          )}
           <Button
             variant="destructive"
             onClick={() => setDeleteDialogOpen(true)}
@@ -573,15 +716,15 @@ export default function ItineraryBuilderPage() {
 
       {/* Progress */}
       <Card>
-        <CardContent className="py-4">
-          <div className="flex items-center justify-between mb-2">
+        <CardContent className="py-2">
+          <div className="flex items-center justify-between mb-1">
             <span className="text-sm font-medium">
               {visitedParks.size} / {totalParks} ballparks
             </span>
             <span className="text-sm text-muted-foreground">{Math.round(progressPct)}%</span>
           </div>
-          <Progress value={progressPct} className="h-3" />
-          <div className="flex flex-wrap gap-1 mt-3">
+          <Progress value={progressPct} className="h-2.5" />
+          <div className="flex flex-wrap gap-1 mt-2">
             {targetTeams.map((t) => (
               <Badge
                 key={t.abbr}
@@ -652,6 +795,7 @@ export default function ItineraryBuilderPage() {
               const game = itinerary.games.find((g) => g.game_id === gameId);
               if (game) setSelectedGame(game);
             }}
+            onSegmentModeToggle={(segIdx, newMode) => updateSegmentMode(segIdx, newMode)}
           />
         </TabsContent>
 
@@ -695,7 +839,7 @@ export default function ItineraryBuilderPage() {
           </CardContent>
         </Card>
       )}
-      <div className="grid md:grid-cols-2 gap-6">
+      <div className="grid md:grid-cols-[2fr_3fr] gap-6">
         {/* Left: Available games */}
         <Card>
           <CardHeader className="pb-2">
@@ -817,8 +961,9 @@ export default function ItineraryBuilderPage() {
                     variant="ghost"
                     className="text-muted-foreground hover:text-destructive"
                     onClick={clearAllGames}
+                    disabled={clearing}
                   >
-                    Clear All
+                    {clearing ? "Clearing..." : "Clear All"}
                   </Button>
                 </div>
               )}
@@ -1256,6 +1401,76 @@ export default function ItineraryBuilderPage() {
             <Button onClick={() => setAutoGenerateResult(null)}>
               Done
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Save as Template dialog (admin only) */}
+      <Dialog open={templateDialogOpen} onOpenChange={setTemplateDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Save as Template</DialogTitle>
+            <DialogDescription>
+              This template will be used to pre-populate new user accounts with an example itinerary.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="template-name">Template Name</Label>
+              <Input
+                id="template-name"
+                value={templateName}
+                onChange={(e) => setTemplateName(e.target.value)}
+                placeholder="e.g. East Coast Classic"
+              />
+            </div>
+            <div>
+              <Label htmlFor="template-description">Description (optional)</Label>
+              <textarea
+                id="template-description"
+                value={templateDescription}
+                onChange={(e) => setTemplateDescription(e.target.value)}
+                placeholder="A brief description of this template..."
+                className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              />
+            </div>
+            {templateSaved && (
+              <div className="rounded-lg border border-green-300 bg-green-50 dark:bg-green-950/30 dark:border-green-800 p-3 text-sm text-green-800 dark:text-green-300">
+                Template saved successfully! You can manage it from the admin Templates page.
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTemplateDialogOpen(false)}>
+              {templateSaved ? "Close" : "Cancel"}
+            </Button>
+            {!templateSaved && (
+              <Button
+                onClick={async () => {
+                  if (!templateName.trim()) return;
+                  setSavingTemplate(true);
+                  try {
+                    const res = await fetch("/api/admin/templates", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        source_itinerary_id: id,
+                        name: templateName.trim(),
+                        description: templateDescription.trim() || undefined,
+                      }),
+                    });
+                    if (res.ok) {
+                      setTemplateSaved(true);
+                    }
+                  } finally {
+                    setSavingTemplate(false);
+                  }
+                }}
+                disabled={savingTemplate || !templateName.trim()}
+              >
+                {savingTemplate ? "Saving..." : "Save Template"}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
