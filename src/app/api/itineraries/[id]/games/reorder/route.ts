@@ -12,6 +12,17 @@ export async function PUT(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  // Verify user owns this itinerary
+  const { data: itinerary } = await db
+    .from("itineraries")
+    .select("id")
+    .eq("id", id)
+    .eq("user_id", session.user.id)
+    .single();
+  if (!itinerary) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
   const { game_ids } = await req.json() as { game_ids: number[] };
 
   // Update each game's sort_order

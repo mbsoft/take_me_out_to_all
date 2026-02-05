@@ -13,6 +13,17 @@ export async function POST(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  // Verify user owns this itinerary
+  const { data: itinerary } = await db
+    .from("itineraries")
+    .select("id")
+    .eq("id", id)
+    .eq("user_id", session.user.id)
+    .single();
+  if (!itinerary) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
   const { game_id } = await req.json();
 
   // Get current max sort_order

@@ -12,6 +12,17 @@ export async function PATCH(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  // Verify user owns this itinerary
+  const { data: itinerary } = await db
+    .from("itineraries")
+    .select("id")
+    .eq("id", id)
+    .eq("user_id", session.user.id)
+    .single();
+  if (!itinerary) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
   const body = await req.json();
   const { notes, locked } = body as { notes?: string; locked?: boolean };
 
@@ -40,6 +51,17 @@ export async function DELETE(
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // Verify user owns this itinerary
+  const { data: itinerary } = await db
+    .from("itineraries")
+    .select("id")
+    .eq("id", id)
+    .eq("user_id", session.user.id)
+    .single();
+  if (!itinerary) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
   // Check if game is locked
