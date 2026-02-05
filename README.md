@@ -1,5 +1,8 @@
 # Take Me Out to the Ballparks 🌍⚾
 
+[![CI](https://github.com/mbsoft/take_me_out_to_all/actions/workflows/test.yml/badge.svg)](https://github.com/mbsoft/take_me_out_to_all/actions/workflows/test.yml)
+[![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/mbsoft/ab645ee3918c6a5b481c6015f8d0141a/raw/coverage-badge.json)](https://github.com/mbsoft/take_me_out_to_all/actions)
+
 A full-stack web application for planning MLB ballpark visit itineraries for the 2026 season. Users can create optimized travel schedules to visit multiple ballparks, view game information, get ticket prices, and plan their ultimate baseball road trip.
 
 ## Features
@@ -175,6 +178,9 @@ For detailed deployment instructions, troubleshooting, and production setup, see
 | `npm run build` | Build for production |
 | `npm start` | Start production server |
 | `npm run lint` | Run ESLint |
+| `npm test` | Run tests in watch mode |
+| `npm run test:run` | Run tests once |
+| `npm run test:coverage` | Run tests with coverage report |
 | `npm run seed` | Seed database with teams and games |
 | `npm run download-mlb-logos` | Download team logos |
 
@@ -212,9 +218,21 @@ For detailed deployment instructions, troubleshooting, and production setup, see
 ### Running Tests
 
 ```bash
-# No tests configured yet
-# TODO: Add Jest/Vitest tests
+# Run tests in watch mode
+npm test
+
+# Run tests once
+npm run test:run
+
+# Run tests with coverage report
+npm run test:coverage
 ```
+
+**Test Coverage:** 157 tests across 11 test files covering:
+- Utility functions (haversine, goal-utils, team-logos, route-optimizer)
+- Auth API routes (register, forgot-password, reset-password)
+- Itinerary CRUD APIs
+- React components (TeamPicker, PlaceAutocomplete)
 
 ### Local Docker Testing
 
