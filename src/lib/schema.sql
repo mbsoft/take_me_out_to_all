@@ -53,7 +53,8 @@ CREATE TABLE IF NOT EXISTS itinerary_games (
   itinerary_id TEXT NOT NULL REFERENCES itineraries(id) ON DELETE CASCADE,
   game_id INTEGER NOT NULL REFERENCES games(game_id),
   sort_order INTEGER NOT NULL,
-  notes TEXT
+  notes TEXT,
+  locked BOOLEAN DEFAULT FALSE
 );
 
 CREATE TABLE IF NOT EXISTS itinerary_game_photos (

@@ -13,11 +13,15 @@ export async function PATCH(
   }
 
   const body = await req.json();
-  const { notes } = body as { notes?: string };
+  const { notes, locked } = body as { notes?: string; locked?: boolean };
+
+  const update: Record<string, unknown> = {};
+  if (notes !== undefined) update.notes = notes ?? null;
+  if (locked !== undefined) update.locked = locked;
 
   const { error } = await db
     .from("itinerary_games")
-    .update({ notes: notes ?? null })
+    .update(update)
     .eq("itinerary_id", id)
     .eq("game_id", parseInt(gameId));
 
@@ -36,6 +40,18 @@ export async function DELETE(
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // Check if game is locked
+  const { data: ig } = await db
+    .from("itinerary_games")
+    .select("locked")
+    .eq("itinerary_id", id)
+    .eq("game_id", parseInt(gameId))
+    .single();
+
+  if (ig?.locked) {
+    return NextResponse.json({ error: "Cannot remove a locked game" }, { status: 400 });
   }
 
   const { error } = await db

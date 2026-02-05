@@ -12,7 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { ExternalLink, Ticket, Loader2, X, StickyNote, Check, Camera, Plus, Trash2 } from "lucide-react";
+import { ExternalLink, Ticket, Loader2, X, StickyNote, Check, Camera, Plus, Trash2, Lock, Unlock } from "lucide-react";
 
 interface Game {
   game_id: number;
@@ -25,6 +25,7 @@ interface Game {
   state?: string;
   date_time: string;
   notes?: string;
+  locked?: boolean;
 }
 
 interface SeatGeekEvent {
@@ -55,6 +56,7 @@ interface GameDetailPanelProps {
   onClose: () => void;
   itineraryId: string;
   onNotesChange?: (gameId: number, notes: string) => void;
+  onLockedChange?: (gameId: number, locked: boolean) => void;
 }
 
 /** MLB team timezone mapping */
@@ -106,7 +108,7 @@ function formatPrice(price: number | null) {
   return `$${price}`;
 }
 
-export function GameDetailPanel({ game, open, onClose, itineraryId, onNotesChange }: GameDetailPanelProps) {
+export function GameDetailPanel({ game, open, onClose, itineraryId, onNotesChange, onLockedChange }: GameDetailPanelProps) {
   const [event, setEvent] = useState<SeatGeekEvent | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -289,6 +291,15 @@ export function GameDetailPanel({ game, open, onClose, itineraryId, onNotesChang
                 <div className="text-sm text-muted-foreground">
                   {formatDate(game.date_time, game.home_team)} &middot; {formatTime(game.date_time, game.home_team)}
                 </div>
+                <Button
+                  variant={game.locked ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => onLockedChange?.(game.game_id, !game.locked)}
+                  className="mt-2 gap-1.5"
+                >
+                  {game.locked ? <Lock className="h-4 w-4" /> : <Unlock className="h-4 w-4" />}
+                  {game.locked ? "Locked" : "Lock Game"}
+                </Button>
               </div>
 
               {/* Ticket info */}

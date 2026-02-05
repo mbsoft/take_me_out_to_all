@@ -28,6 +28,11 @@ interface NBVehicle {
   capacity: number[];
 }
 
+interface NBRelation {
+  type: string;
+  steps: number[];
+}
+
 interface NBOptimizationRequest {
   description?: string;
   locations: {
@@ -37,6 +42,7 @@ interface NBOptimizationRequest {
   jobs: NBJob[];
   vehicles: NBVehicle[];
   options: { routing: { mode: string }; objective: { travel_cost: string } };
+  relations?: NBRelation[];
 }
 
 interface NBStep {
@@ -95,6 +101,12 @@ interface JobGameMapping {
   games: ScheduledGame[];
 }
 
+export interface LockedGame {
+  abbr: string;       // home team abbreviation (park identifier)
+  game_id: number;    // specific game_id
+  date_time: string;  // game date_time
+}
+
 const METERS_TO_MILES = 0.000621371;
 const DRIVE_THRESHOLD_MILES = 500;
 const GAME_SERVICE_SECONDS = 86400; // 24 hours
@@ -110,6 +122,7 @@ export function buildOptimizationRequest(
   parks: Park[],
   gamesByPark: Map<string, ScheduledGame[]>,
   description?: string,
+  lockedGames?: LockedGame[],
 ): { request: NBOptimizationRequest; jobGameMap: Map<number, JobGameMapping> } {
   // Build locations: pipe-separated "lat,lon|lat,lon|..." string
   const locationParts: string[] = [];
@@ -129,9 +142,18 @@ export function buildOptimizationRequest(
 
 
 
+  // Build locked game lookup
+  const lockedByAbbr = new Map<string, LockedGame>();
+  if (lockedGames) {
+    for (const lg of lockedGames) {
+      lockedByAbbr.set(lg.abbr, lg);
+    }
+  }
+
   // Build jobs: one per team with time_windows for each home game
   const jobs: NBJob[] = [];
   const jobGameMap = new Map<number, JobGameMapping>();
+  const lockedJobIds: number[] = [];
   let jobId = 1;
 
   for (let i = 0; i < parks.length; i++) {
@@ -143,22 +165,42 @@ export function buildOptimizationRequest(
       (a, b) => new Date(a.date_time).getTime() - new Date(b.date_time).getTime(),
     );
 
-    // Build raw windows then merge overlapping ones
-    // NB.ai requires non-overlapping, sorted time_windows
-    const rawWindows = sortedGames.map((game) => {
-      const gameEpoch = Math.floor(new Date(game.date_time).getTime() / 1000);
-      const windowStart = gameEpoch - PRE_GAME_WINDOW_HOURS * 3600;
-      return [windowStart, gameEpoch];
-    });
+    const locked = lockedByAbbr.get(park.abbr);
 
-    const timeWindows: number[][] = [];
-    for (const w of rawWindows) {
-      if (timeWindows.length > 0 && w[0] <= timeWindows[timeWindows.length - 1][1]) {
-        // Overlaps with previous — extend the end
-        timeWindows[timeWindows.length - 1][1] = Math.max(timeWindows[timeWindows.length - 1][1], w[1]);
+    let timeWindows: number[][];
+    let jobGames: ScheduledGame[];
+
+    if (locked) {
+      // Locked game: only submit the single time window for the locked game
+      const lockedGame = sortedGames.find((g) => g.game_id === locked.game_id);
+      if (lockedGame) {
+        const gameEpoch = Math.floor(new Date(lockedGame.date_time).getTime() / 1000);
+        const windowStart = gameEpoch - PRE_GAME_WINDOW_HOURS * 3600;
+        timeWindows = [[windowStart, gameEpoch]];
+        jobGames = [lockedGame];
       } else {
-        timeWindows.push([...w]);
+        // Locked game not found in available games — skip this park
+        continue;
       }
+    } else {
+      // Normal: build raw windows then merge overlapping ones
+      // NB.ai requires non-overlapping, sorted time_windows
+      const rawWindows = sortedGames.map((game) => {
+        const gameEpoch = Math.floor(new Date(game.date_time).getTime() / 1000);
+        const windowStart = gameEpoch - PRE_GAME_WINDOW_HOURS * 3600;
+        return [windowStart, gameEpoch];
+      });
+
+      timeWindows = [];
+      for (const w of rawWindows) {
+        if (timeWindows.length > 0 && w[0] <= timeWindows[timeWindows.length - 1][1]) {
+          // Overlaps with previous — extend the end
+          timeWindows[timeWindows.length - 1][1] = Math.max(timeWindows[timeWindows.length - 1][1], w[1]);
+        } else {
+          timeWindows.push([...w]);
+        }
+      }
+      jobGames = sortedGames;
     }
 
     jobs.push({
@@ -169,7 +211,11 @@ export function buildOptimizationRequest(
       description: park.abbr,
     });
 
-    jobGameMap.set(jobId, { park, games: sortedGames });
+    if (locked) {
+      lockedJobIds.push(jobId);
+    }
+
+    jobGameMap.set(jobId, { park, games: jobGames });
     jobId++;
   }
 
@@ -199,6 +245,10 @@ export function buildOptimizationRequest(
     vehicles: [vehicle],
     options: { routing: { mode: "car" }, objective: { travel_cost: "distance" } },
   };
+
+  if (lockedJobIds.length > 0) {
+    request.relations = [{ type: "in_same_route", steps: lockedJobIds }];
+  }
 
   return { request, jobGameMap };
 }
@@ -422,6 +472,7 @@ export async function optimizeRouteWithNB(
   parks: Park[],
   gamesByPark: Map<string, ScheduledGame[]>,
   description?: string,
+  lockedGames?: LockedGame[],
 ): Promise<OptimizedRoute> {
   const { request, jobGameMap } = buildOptimizationRequest(
     startLocation,
@@ -431,6 +482,7 @@ export async function optimizeRouteWithNB(
     parks,
     gamesByPark,
     description,
+    lockedGames,
   );
 
   if (request.jobs.length === 0) {

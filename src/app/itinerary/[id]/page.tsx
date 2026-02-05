@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter, useParams } from "next/navigation";
 import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd";
-import { Trash2, Map, List, Check, MapPin, Car, Plane, Sparkles, Loader2, Pencil } from "lucide-react";
+import { Trash2, Map, List, Check, MapPin, Car, Plane, Sparkles, Loader2, Pencil, Lock, Unlock } from "lucide-react";
 import dynamic from "next/dynamic";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -52,6 +52,7 @@ interface Game {
   sort_order?: number;
   id?: string; // itinerary_game id
   notes?: string;
+  locked?: boolean;
 }
 
 interface Stopover {
@@ -257,9 +258,25 @@ export default function ItineraryBuilderPage() {
     }
   }
 
+  async function toggleLock(gameId: number, locked: boolean) {
+    // Optimistic update
+    setItinerary((prev) =>
+      prev
+        ? { ...prev, games: prev.games.map((g) => (g.game_id === gameId ? { ...g, locked } : g)) }
+        : prev
+    );
+    await fetch(`/api/itineraries/${id}/games/${gameId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ locked }),
+    });
+  }
+
   async function clearAllGames() {
     if (!itinerary || itinerary.games.length === 0) return;
-    for (const g of itinerary.games) {
+    const unlocked = itinerary.games.filter((g) => !g.locked);
+    if (unlocked.length === 0) return;
+    for (const g of unlocked) {
       await fetch(`/api/itineraries/${id}/games/${g.game_id}`, { method: "DELETE" });
     }
     // Clear stopovers too
@@ -961,15 +978,28 @@ export default function ItineraryBuilderPage() {
                                                 </div>
                                               </div>
                                             </div>
-                                            <Button
-                                              size="sm"
-                                              variant="ghost"
-                                              className="text-red-500 hover:text-red-700"
-                                              onClick={(e) => { e.stopPropagation(); removeGame(g.game_id); }}
-                                              disabled={isRemoving}
-                                            >
-                                              {isRemoving ? "Removing..." : "Remove"}
-                                            </Button>
+                                            <div className="flex items-center gap-1">
+                                              <Button
+                                                size="sm"
+                                                variant="ghost"
+                                                className={g.locked ? "text-amber-500 hover:text-amber-600" : "text-muted-foreground hover:text-foreground"}
+                                                onClick={(e) => { e.stopPropagation(); toggleLock(g.game_id, !g.locked); }}
+                                                title={g.locked ? "Unlock game" : "Lock game"}
+                                              >
+                                                {g.locked ? <Lock className="h-3.5 w-3.5" /> : <Unlock className="h-3.5 w-3.5" />}
+                                              </Button>
+                                              {!g.locked && (
+                                                <Button
+                                                  size="sm"
+                                                  variant="ghost"
+                                                  className="text-red-500 hover:text-red-700"
+                                                  onClick={(e) => { e.stopPropagation(); removeGame(g.game_id); }}
+                                                  disabled={isRemoving}
+                                                >
+                                                  {isRemoving ? "Removing..." : "Remove"}
+                                                </Button>
+                                              )}
+                                            </div>
                                           </div>
                                         )}
                                       </Draggable>
@@ -1131,6 +1161,10 @@ export default function ItineraryBuilderPage() {
             games: prev.games.map((g) => g.game_id === gameId ? { ...g, notes } : g),
           } : prev);
         }}
+        onLockedChange={(gameId, locked) => {
+          toggleLock(gameId, locked);
+          setSelectedGame((prev) => prev && prev.game_id === gameId ? { ...prev, locked } : prev);
+        }}
       />
 
       {/* Regenerate confirmation dialog */}
@@ -1139,7 +1173,13 @@ export default function ItineraryBuilderPage() {
           <DialogHeader>
             <DialogTitle>Regenerate Itinerary</DialogTitle>
             <DialogDescription>
-              This will replace all {itinerary.games.length} existing games with a new auto-generated route. This action cannot be undone.
+              {(() => {
+                const lockedCount = itinerary.games.filter((g) => g.locked).length;
+                if (lockedCount > 0) {
+                  return `This will replace all unlocked games with a new auto-generated route. Your ${lockedCount} locked game${lockedCount > 1 ? "s" : ""} will be preserved.`;
+                }
+                return `This will replace all ${itinerary.games.length} existing games with a new auto-generated route. This action cannot be undone.`;
+              })()}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

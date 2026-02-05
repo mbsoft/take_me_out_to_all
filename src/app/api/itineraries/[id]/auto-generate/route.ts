@@ -3,7 +3,7 @@ import { v4 as uuid } from "uuid";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { optimizeRoute, type Park, type ScheduledGame } from "@/lib/route-optimizer";
-import { optimizeRouteWithNB } from "@/lib/nb-route-optimizer";
+import { optimizeRouteWithNB, type LockedGame } from "@/lib/nb-route-optimizer";
 
 export async function POST(
   req: Request,
@@ -119,6 +119,27 @@ export async function POST(
   }
   console.log(`[Auto-generate] Games per team: ${targetAbbrs.map((a) => `${a}:${gamesByPark.get(a)?.length ?? 0}`).join(", ")}`);
 
+  // Fetch locked games for this itinerary
+  const { data: lockedRows } = await db
+    .from("itinerary_games")
+    .select("game_id, games(home_team, date_time)")
+    .eq("itinerary_id", id)
+    .eq("locked", true);
+
+  const lockedGames: LockedGame[] = (lockedRows ?? [])
+    .filter((r: any) => r.games)
+    .map((r: any) => ({
+      abbr: r.games.home_team as string,
+      game_id: r.game_id as number,
+      date_time: r.games.date_time as string,
+    }));
+
+  const lockedGameIds = new Set(lockedGames.map((lg) => lg.game_id));
+
+  if (lockedGames.length > 0) {
+    console.log(`[Auto-generate] ${lockedGames.length} locked game(s): ${lockedGames.map((lg) => `${lg.abbr}:${lg.game_id}`).join(", ")}`);
+  }
+
   // Run optimizer
   const startLocation = {
     lat: itinerary.start_lat as number,
@@ -140,6 +161,7 @@ export async function POST(
       parks,
       gamesByPark,
       bodyDescription,
+      lockedGames.length > 0 ? lockedGames : undefined,
     );
   } catch (nbError) {
     console.warn("[Auto-generate] NB.ai optimization failed, falling back to local optimizer:", nbError);
@@ -159,22 +181,50 @@ export async function POST(
     );
   }
 
-  // Clear existing games and stopovers
-  await db.from("itinerary_games").delete().eq("itinerary_id", id);
+  // Clear unlocked games and stopovers (preserve locked games)
+  if (lockedGameIds.size > 0) {
+    await db
+      .from("itinerary_games")
+      .delete()
+      .eq("itinerary_id", id)
+      .not("locked", "eq", true);
+  } else {
+    await db.from("itinerary_games").delete().eq("itinerary_id", id);
+  }
   await db.from("itinerary_stopovers").delete().eq("itinerary_id", id);
 
-  // Bulk insert new games
-  const inserts = result.stops.map((stop, index) => ({
-    id: uuid(),
-    itinerary_id: id,
-    game_id: stop.game.game_id,
-    sort_order: index,
-  }));
+  // Insert new (non-locked) games from optimizer result and update sort_order for locked ones
+  const inserts: { id: string; itinerary_id: string; game_id: number; sort_order: number }[] = [];
+  const lockedUpdates: { game_id: number; sort_order: number }[] = [];
 
-  const { error: insertError } = await db.from("itinerary_games").insert(inserts);
-  if (insertError) {
-    console.error("Auto-generate insert error:", insertError);
-    return NextResponse.json({ error: "Failed to save generated itinerary" }, { status: 500 });
+  result.stops.forEach((stop, index) => {
+    if (lockedGameIds.has(stop.game.game_id)) {
+      lockedUpdates.push({ game_id: stop.game.game_id, sort_order: index });
+    } else {
+      inserts.push({
+        id: uuid(),
+        itinerary_id: id,
+        game_id: stop.game.game_id,
+        sort_order: index,
+      });
+    }
+  });
+
+  if (inserts.length > 0) {
+    const { error: insertError } = await db.from("itinerary_games").insert(inserts);
+    if (insertError) {
+      console.error("Auto-generate insert error:", insertError);
+      return NextResponse.json({ error: "Failed to save generated itinerary" }, { status: 500 });
+    }
+  }
+
+  // Update sort_order for locked games to match optimizer's route order
+  for (const lu of lockedUpdates) {
+    await db
+      .from("itinerary_games")
+      .update({ sort_order: lu.sort_order })
+      .eq("itinerary_id", id)
+      .eq("game_id", lu.game_id);
   }
 
   // Update itinerary metadata
