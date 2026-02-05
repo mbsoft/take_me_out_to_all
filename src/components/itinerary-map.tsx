@@ -1,8 +1,53 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { getTeamLogoPath } from "@/lib/team-logos";
+import { getTeamLogoPath, TEAM_LOGO_ABBREVIATIONS } from "@/lib/team-logos";
 import { ChevronLeft, ChevronRight, Car, Plane, MapPin, Loader2, Lock } from "lucide-react";
+
+// Module-level cache for preloaded team logo images
+const logoCache = new Map<string, HTMLImageElement>();
+let logosPreloaded = false;
+
+/** Preload all team logos into memory cache to avoid repeated network requests */
+function preloadTeamLogos(): Promise<void> {
+  if (logosPreloaded) return Promise.resolve();
+
+  const promises = TEAM_LOGO_ABBREVIATIONS.map((abbr) => {
+    const path = getTeamLogoPath(abbr);
+    if (!path || logoCache.has(abbr)) return Promise.resolve();
+
+    return new Promise<void>((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        logoCache.set(abbr, img);
+        resolve();
+      };
+      img.onerror = () => resolve(); // Don't fail if logo missing
+      img.src = path;
+    });
+  });
+
+  return Promise.all(promises).then(() => {
+    logosPreloaded = true;
+  });
+}
+
+/** Get a cached logo image element (cloned for reuse) or create a new one */
+function getCachedLogoElement(abbr: string, size: number): HTMLImageElement {
+  const cached = logoCache.get(abbr.toUpperCase());
+  if (cached) {
+    const clone = cached.cloneNode() as HTMLImageElement;
+    clone.style.cssText = `width:${size}px;height:${size}px;object-fit:contain;pointer-events:none;`;
+    return clone;
+  }
+  // Fallback: create new image (will use browser cache if headers set)
+  const img = document.createElement("img");
+  const path = getTeamLogoPath(abbr);
+  if (path) img.src = path;
+  img.alt = abbr;
+  img.style.cssText = `width:${size}px;height:${size}px;object-fit:contain;pointer-events:none;`;
+  return img;
+}
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useTheme } from "@/components/theme-provider";
 import type maplibregl from "maplibre-gl";
@@ -210,6 +255,9 @@ export default function ItineraryMap({
   useEffect(() => {
     let cancelled = false;
 
+    // Preload team logos into memory cache (fire and forget)
+    preloadTeamLogos();
+
     async function init() {
       try {
         // Load CSS
@@ -242,6 +290,8 @@ export default function ItineraryMap({
           style: getStyleUrl(isDark),
           zoom: 3.5,
           center: [-98.5795, 39.8283],
+          minZoom: 2,
+          maxZoom: 12,
           attributionControl: false,
         });
         mapRef.current = { map };
@@ -314,10 +364,8 @@ export default function ItineraryMap({
         el.style.cssText =
           "width:28px;height:28px;border-radius:50%;overflow:hidden;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.25);display:flex;align-items:center;justify-content:center;background:#fff;";
         if (logoPath) {
-          const img = document.createElement("img");
-          img.src = logoPath;
-          img.alt = t.abbr;
-          img.style.cssText = "width:22px;height:22px;object-fit:contain;pointer-events:none;";
+          // Use cached logo element to avoid repeated network requests
+          const img = getCachedLogoElement(t.abbr, 22);
           el.appendChild(img);
         } else {
           el.style.background = "#9ca3af";
@@ -420,10 +468,8 @@ export default function ItineraryMap({
         cursor:pointer;overflow:visible;
       `;
       if (logoPath) {
-        const img = document.createElement("img");
-        img.src = logoPath;
-        img.alt = g.home_team;
-        img.style.cssText = "width:24px;height:24px;object-fit:contain;pointer-events:none;";
+        // Use cached logo element to avoid repeated network requests
+        const img = getCachedLogoElement(g.home_team, 24);
         el.appendChild(img);
       }
       const badge = document.createElement("div");
