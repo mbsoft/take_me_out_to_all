@@ -35,7 +35,13 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           data.password_hash as string
         );
         if (!valid) return null;
-        return { id: data.id as string, email: data.email as string, name: data.name as string };
+        if (data.is_active === false) return null;
+        return {
+          id: data.id as string,
+          email: data.email as string,
+          name: data.name as string,
+          role: (data.role as string) || "user",
+        };
       },
     }),
   ],
@@ -59,21 +65,26 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             password_hash: null, // OAuth users don't have passwords
           });
           user.id = userId;
+          user.role = "user";
         } else {
+          if (existingUser.is_active === false) return false;
           user.id = existingUser.id as string;
+          user.role = (existingUser.role as string) || "user";
         }
       }
       return true;
     },
     jwt({ token, user }) {
       if (user) {
-        token.id = user.id;
+        token.id = user.id as string;
+        token.role = user.role || "user";
       }
       return token;
     },
     session({ session, token }) {
       if (session.user) {
         session.user.id = token.id as string;
+        session.user.role = token.role as string;
       }
       return session;
     },

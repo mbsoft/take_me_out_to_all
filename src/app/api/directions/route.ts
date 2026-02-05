@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { logApiCall } from "@/lib/api-logger";
 import crypto from "crypto";
 
 const NBAI_API_KEY = process.env.NBAI_API_KEY || process.env.NEXT_PUBLIC_NBAI_API_KEY;
@@ -217,6 +218,7 @@ export async function POST(req: NextRequest) {
       const url = new URL("https://api.nextbillion.io/directions/json");
       url.searchParams.set("key", NBAI_API_KEY);
       try {
+        const fetchStart = Date.now();
         const res = await fetch(url.toString(), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -229,6 +231,14 @@ export async function POST(req: NextRequest) {
           }),
           next: { revalidate: 3600 },
         } as RequestInit);
+        logApiCall({
+          api_name: "nbai_directions",
+          endpoint: "/directions/json",
+          method: "POST",
+          status_code: res.status,
+          response_time_ms: Date.now() - fetchStart,
+          user_id: session.user.id,
+        });
         if (!res.ok) {
           console.error(`Directions API error: ${res.status}`);
           continue;

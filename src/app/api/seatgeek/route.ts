@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { logApiCall } from "@/lib/api-logger";
 
 // Map our team abbreviations to SeatGeek performer slugs
 const TEAM_SLUGS: Record<string, string> = {
@@ -75,8 +76,16 @@ export async function GET(req: NextRequest) {
   console.log("[SeatGeek] Request URL:", url);
 
   try {
+    const fetchStart = Date.now();
     const res = await fetch(url, {
       next: { revalidate: 300 }, // cache for 5 min
+    });
+    logApiCall({
+      api_name: "seatgeek",
+      endpoint: "/2/events",
+      method: "GET",
+      status_code: res.status,
+      response_time_ms: Date.now() - fetchStart,
     });
 
     if (!res.ok) {

@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter, useParams } from "next/navigation";
 import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd";
-import { Trash2, Map, List, Check, MapPin, Car, Plane, Sparkles, Loader2 } from "lucide-react";
+import { Trash2, Map, List, Check, MapPin, Car, Plane, Sparkles, Loader2, Pencil } from "lucide-react";
 import dynamic from "next/dynamic";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -172,6 +172,10 @@ export default function ItineraryBuilderPage() {
     estimated_days: number;
   } | null>(null);
   const [regenerateDialogOpen, setRegenerateDialogOpen] = useState(false);
+  const [editingStartLocation, setEditingStartLocation] = useState(false);
+  const [startLocationSearch, setStartLocationSearch] = useState("");
+  const [editingEndLocation, setEditingEndLocation] = useState(false);
+  const [endLocationSearch, setEndLocationSearch] = useState("");
 
   useEffect(() => {
     if (status === "unauthenticated") router.push("/login");
@@ -381,6 +385,41 @@ export default function ItineraryBuilderPage() {
     }
   }
 
+  async function updateLocation(which: "start" | "end", place: PlaceResult) {
+    if (!itinerary) return;
+    const updates = which === "start"
+      ? { start_location: place.label, start_lat: place.lat, start_lon: place.lng }
+      : { end_location: place.label, end_lat: place.lat, end_lon: place.lng };
+    setItinerary((prev) => prev ? { ...prev, ...updates } : null);
+    if (which === "start") {
+      setEditingStartLocation(false);
+      setStartLocationSearch("");
+    } else {
+      setEditingEndLocation(false);
+      setEndLocationSearch("");
+    }
+    const res = await fetch(`/api/itineraries/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: itinerary.name,
+        goal: itinerary.goal,
+        travel_mode: itinerary.travel_mode,
+        start_date: itinerary.start_date ?? null,
+        start_location: which === "start" ? place.label : itinerary.start_location ?? null,
+        start_lat: which === "start" ? place.lat : itinerary.start_lat ?? null,
+        start_lon: which === "start" ? place.lng : itinerary.start_lon ?? null,
+        end_location: which === "end" ? place.label : itinerary.end_location ?? null,
+        end_lat: which === "end" ? place.lat : itinerary.end_lat ?? null,
+        end_lon: which === "end" ? place.lng : itinerary.end_lon ?? null,
+        segment_modes: itinerary.segment_modes ?? [],
+      }),
+    });
+    if (!res.ok) {
+      loadItinerary();
+    }
+  }
+
   async function onDragEnd(result: DropResult) {
     if (!result.destination || !itinerary) return;
     const games = [...itinerary.games];
@@ -403,10 +442,14 @@ export default function ItineraryBuilderPage() {
     setAutoGenerating(true);
     setAutoGenerateResult(null);
     try {
+      const now = new Date();
+      const localDate = now.toLocaleDateString("en-US", { year: "numeric", month: "2-digit", day: "2-digit" });
+      const localTime = now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false });
+      const description = `${itinerary?.name ?? ""}-${localDate} ${localTime}`;
       const res = await fetch(`/api/itineraries/${id}/auto-generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ start_date: startDate || undefined, end_date: endDate || undefined }),
+        body: JSON.stringify({ start_date: startDate || undefined, end_date: endDate || undefined, description }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -501,21 +544,6 @@ export default function ItineraryBuilderPage() {
           <Button variant="outline" onClick={() => router.push("/dashboard")}>
             Back to Dashboard
           </Button>
-          {itinerary.games.length > 0 && itinerary.start_location && (
-            <Button
-              variant="outline"
-              onClick={() => setRegenerateDialogOpen(true)}
-              disabled={autoGenerating}
-              className="gap-2"
-            >
-              {autoGenerating ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Sparkles className="h-4 w-4" />
-              )}
-              Regenerate
-            </Button>
-          )}
           <Button
             variant="destructive"
             onClick={() => setDeleteDialogOpen(true)}
@@ -576,12 +604,12 @@ export default function ItineraryBuilderPage() {
             segmentModes={segmentModes}
             startLocation={
               itinerary.start_lat && itinerary.start_lon
-                ? { lat: itinerary.start_lat as unknown as number, lon: itinerary.start_lon as unknown as number }
+                ? { lat: itinerary.start_lat as unknown as number, lon: itinerary.start_lon as unknown as number, label: itinerary.start_location || undefined }
                 : null
             }
             endLocation={
               itinerary.end_lat && itinerary.end_lon
-                ? { lat: itinerary.end_lat as unknown as number, lon: itinerary.end_lon as unknown as number }
+                ? { lat: itinerary.end_lat as unknown as number, lon: itinerary.end_lon as unknown as number, label: itinerary.end_location || undefined }
                 : null
             }
             travelMode={itinerary.travel_mode}
@@ -752,14 +780,30 @@ export default function ItineraryBuilderPage() {
                 Your Itinerary ({itinerary.games.length} games)
               </CardTitle>
               {itinerary.games.length > 0 && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="text-muted-foreground hover:text-destructive"
-                  onClick={clearAllGames}
-                >
-                  Clear All
-                </Button>
+                <div className="flex items-center gap-1">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="gap-1"
+                    onClick={() => setRegenerateDialogOpen(true)}
+                    disabled={autoGenerating}
+                  >
+                    {autoGenerating ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Sparkles className="h-3.5 w-3.5" />
+                    )}
+                    Regenerate
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="text-muted-foreground hover:text-destructive"
+                    onClick={clearAllGames}
+                  >
+                    Clear All
+                  </Button>
+                </div>
               )}
             </div>
           </CardHeader>
@@ -769,53 +813,6 @@ export default function ItineraryBuilderPage() {
                 {(provided) => (
                   <div ref={provided.innerRef} {...provided.droppableProps}>
                     <ScrollArea className="h-[500px]">
-                      {itinerary.games.length === 0 && !itinerary.start_location && !itinerary.end_location ? (
-                        <div className="text-center py-12 space-y-4">
-                          <p className="text-sm text-muted-foreground">
-                            Add games from the left panel or auto-generate an optimized route
-                          </p>
-                          <Button
-                            onClick={handleAutoGenerate}
-                            disabled={autoGenerating}
-                            className="gap-2"
-                          >
-                            {autoGenerating ? (
-                              <>
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                                Generating...
-                              </>
-                            ) : (
-                              <>
-                                <Sparkles className="h-4 w-4" />
-                                Auto Generate Itinerary
-                              </>
-                            )}
-                          </Button>
-                        </div>
-                      ) : itinerary.games.length === 0 ? (
-                        <div className="text-center py-12 space-y-4">
-                          <p className="text-sm text-muted-foreground">
-                            Add games from the left panel or auto-generate an optimized route
-                          </p>
-                          <Button
-                            onClick={handleAutoGenerate}
-                            disabled={autoGenerating}
-                            className="gap-2"
-                          >
-                            {autoGenerating ? (
-                              <>
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                                Generating...
-                              </>
-                            ) : (
-                              <>
-                                <Sparkles className="h-4 w-4" />
-                                Auto Generate Itinerary
-                              </>
-                            )}
-                          </Button>
-                        </div>
-                      ) : (
                         <div className="space-y-1">
                           {(() => {
                             let segIdx = 0;
@@ -858,14 +855,75 @@ export default function ItineraryBuilderPage() {
                             };
                             return (
                               <>
-                                {itinerary.start_location && (
+                                {editingStartLocation ? (
+                                  <div className="rounded border border-primary/30 bg-primary/5 p-2 space-y-1">
+                                    <Label className="text-xs font-medium text-primary">Start location</Label>
+                                    <PlaceAutocomplete
+                                      value={startLocationSearch}
+                                      onChange={setStartLocationSearch}
+                                      onSelect={(place) => updateLocation("start", place)}
+                                      placeholder="Search city or address..."
+                                      className="mt-1"
+                                    />
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="mt-1"
+                                      onClick={() => { setEditingStartLocation(false); setStartLocationSearch(""); }}
+                                    >
+                                      Cancel
+                                    </Button>
+                                  </div>
+                                ) : itinerary.start_location ? (
                                   <>
                                     <div className="flex items-center gap-2 rounded border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
                                       <span className="text-xs font-medium text-primary">Start</span>
-                                      <span className="text-muted-foreground">{itinerary.start_location}</span>
+                                      <span className="flex-1 text-muted-foreground">{itinerary.start_location}</span>
+                                      <button
+                                        type="button"
+                                        className="text-muted-foreground hover:text-foreground transition-colors"
+                                        onClick={() => setEditingStartLocation(true)}
+                                        title="Edit start location"
+                                      >
+                                        <Pencil className="h-3.5 w-3.5" />
+                                      </button>
                                     </div>
                                     {(itinerary.games.length > 0 || itinerary.end_location) && renderSegmentSelector(segIdx++)}
                                   </>
+                                ) : (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="w-full border-dashed text-muted-foreground"
+                                    onClick={() => setEditingStartLocation(true)}
+                                  >
+                                    <MapPin className="h-3.5 w-3.5 mr-1.5" />
+                                    Add start location
+                                  </Button>
+                                )}
+                                {itinerary.games.length === 0 && (
+                                  <div className="text-center py-8 space-y-3">
+                                    <p className="text-sm text-muted-foreground">
+                                      Add games from the left panel or auto-generate an optimized route
+                                    </p>
+                                    <Button
+                                      onClick={handleAutoGenerate}
+                                      disabled={autoGenerating}
+                                      className="gap-2"
+                                    >
+                                      {autoGenerating ? (
+                                        <>
+                                          <Loader2 className="h-4 w-4 animate-spin" />
+                                          Generating...
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Sparkles className="h-4 w-4" />
+                                          Auto Generate Itinerary
+                                        </>
+                                      )}
+                                    </Button>
+                                  </div>
                                 )}
                                 {itinerary.games.map((g, index) => {
                                   const stopoversAfter = (itinerary.stopovers ?? []).filter((s) => s.after_index === index).sort((a, b) => a.sort_order - b.sort_order);
@@ -976,17 +1034,53 @@ export default function ItineraryBuilderPage() {
                                     </div>
                                   );
                                 })}
-                                {itinerary.end_location && (
+                                {editingEndLocation ? (
+                                  <div className="rounded border border-primary/30 bg-primary/5 p-2 space-y-1">
+                                    <Label className="text-xs font-medium text-primary">End location</Label>
+                                    <PlaceAutocomplete
+                                      value={endLocationSearch}
+                                      onChange={setEndLocationSearch}
+                                      onSelect={(place) => updateLocation("end", place)}
+                                      placeholder="Search city or address..."
+                                      className="mt-1"
+                                    />
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="mt-1"
+                                      onClick={() => { setEditingEndLocation(false); setEndLocationSearch(""); }}
+                                    >
+                                      Cancel
+                                    </Button>
+                                  </div>
+                                ) : itinerary.end_location ? (
                                   <div className="flex items-center gap-2 rounded border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
                                     <span className="text-xs font-medium text-primary">Finish</span>
-                                    <span className="text-muted-foreground">{itinerary.end_location}</span>
+                                    <span className="flex-1 text-muted-foreground">{itinerary.end_location}</span>
+                                    <button
+                                      type="button"
+                                      className="text-muted-foreground hover:text-foreground transition-colors"
+                                      onClick={() => setEditingEndLocation(true)}
+                                      title="Edit end location"
+                                    >
+                                      <Pencil className="h-3.5 w-3.5" />
+                                    </button>
                                   </div>
+                                ) : (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="w-full border-dashed text-muted-foreground"
+                                    onClick={() => setEditingEndLocation(true)}
+                                  >
+                                    <MapPin className="h-3.5 w-3.5 mr-1.5" />
+                                    Add end location
+                                  </Button>
                                 )}
                               </>
                             );
                           })()}
                         </div>
-                      )}
                       {provided.placeholder}
                     </ScrollArea>
                   </div>

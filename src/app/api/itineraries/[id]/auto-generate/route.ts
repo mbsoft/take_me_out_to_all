@@ -18,10 +18,12 @@ export async function POST(
   // Parse optional date overrides from request body
   let bodyStartDate: string | undefined;
   let bodyEndDate: string | undefined;
+  let bodyDescription: string | undefined;
   try {
     const body = await req.json();
     bodyStartDate = body.start_date;
     bodyEndDate = body.end_date;
+    bodyDescription = body.description;
   } catch {
     // No body or invalid JSON — that's fine, use itinerary's start_date
   }
@@ -136,7 +138,8 @@ export async function POST(
       effectiveStartDate as string,
       bodyEndDate || null,
       parks,
-      gamesByPark
+      gamesByPark,
+      bodyDescription,
     );
   } catch (nbError) {
     console.warn("[Auto-generate] NB.ai optimization failed, falling back to local optimizer:", nbError);

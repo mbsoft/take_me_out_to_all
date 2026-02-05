@@ -12,12 +12,13 @@ export async function GET(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { data: itinerary, error: itineraryError } = await db
-    .from("itineraries")
-    .select("*")
-    .eq("id", id)
-    .eq("user_id", session.user.id)
-    .single();
+  // Admin can view any itinerary; regular users can only view their own
+  const isAdmin = session.user.role === "admin";
+  let itineraryQuery = db.from("itineraries").select("*").eq("id", id);
+  if (!isAdmin) {
+    itineraryQuery = itineraryQuery.eq("user_id", session.user.id);
+  }
+  const { data: itinerary, error: itineraryError } = await itineraryQuery.single();
   
   if (itineraryError || !itinerary) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });

@@ -23,6 +23,19 @@ set +a
 CONTAINER_IMAGE=${CONTAINER_IMAGE:-"us-central1-docker.pkg.dev/takemeout-486217/mlb-itinerary-images/mlb-itinerary:latest"}
 PROJECT_ID=${PROJECT_ID:-"takemeout-486217"}
 
+# Resolve :latest tag to its digest so Terraform detects image changes
+if [[ "$CONTAINER_IMAGE" == *":latest" ]]; then
+  echo -e "${YELLOW}Resolving image digest for :latest tag...${NC}"
+  DIGEST=$(gcloud artifacts docker images describe "$CONTAINER_IMAGE" --format='value(image_summary.digest)' 2>/dev/null)
+  if [ -n "$DIGEST" ]; then
+    # Replace :latest with @sha256:...
+    CONTAINER_IMAGE="${CONTAINER_IMAGE%:latest}@${DIGEST}"
+    echo -e "${GREEN}Resolved to: $CONTAINER_IMAGE${NC}"
+  else
+    echo -e "${YELLOW}Warning: Could not resolve digest, using :latest tag${NC}"
+  fi
+fi
+
 cd terraform
 
 echo -e "${YELLOW}Running terraform plan...${NC}"

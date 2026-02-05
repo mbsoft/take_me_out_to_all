@@ -3,6 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { useSession, signOut } from "next-auth/react";
+import { usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Moon, Sun } from "lucide-react";
 import { useTheme } from "@/components/theme-provider";
@@ -10,9 +11,10 @@ import { useTheme } from "@/components/theme-provider";
 export function Navbar() {
   const { data: session } = useSession();
   const { theme, toggleTheme } = useTheme();
+  const pathname = usePathname();
 
-  // Don't show navbar if user is not signed in
-  if (!session) {
+  // Don't show navbar on admin pages or if user is not signed in
+  if (!session || pathname.startsWith("/admin")) {
     return null;
   }
 

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { logApiCall } from "@/lib/api-logger";
 
 /** NextBillion Discover API proxy. Returns places with label and lat/lng for autocomplete. */
 export async function GET(req: NextRequest) {
@@ -26,7 +27,15 @@ export async function GET(req: NextRequest) {
   console.log("[Discover] API key used:", NBAI_API_KEY ? `${NBAI_API_KEY.slice(0, 6)}...${NBAI_API_KEY.slice(-4)}` : "MISSING");
 
   try {
+    const fetchStart = Date.now();
     const res = await fetch(url.toString(), { next: { revalidate: 0 } });
+    logApiCall({
+      api_name: "nbai_discover",
+      endpoint: "/discover",
+      method: "GET",
+      status_code: res.status,
+      response_time_ms: Date.now() - fetchStart,
+    });
     if (!res.ok) {
       const text = await res.text();
       console.warn("NextBillion Discover API error:", res.status, text);

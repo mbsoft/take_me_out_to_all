@@ -7,6 +7,7 @@
  */
 
 import { haversine } from "./haversine";
+import { logApiCall } from "./api-logger";
 import type { Park, ScheduledGame, RouteStop, OptimizedRoute } from "./route-optimizer";
 
 // --- NB.ai API types ---
@@ -28,6 +29,7 @@ interface NBVehicle {
 }
 
 interface NBOptimizationRequest {
+  description?: string;
   locations: {
     id: number;
     location: string[]; // array of "lat,lon" strings
@@ -107,6 +109,7 @@ export function buildOptimizationRequest(
   endDate: string | null,
   parks: Park[],
   gamesByPark: Map<string, ScheduledGame[]>,
+  description?: string,
 ): { request: NBOptimizationRequest; jobGameMap: Map<number, JobGameMapping> } {
   // Build locations: pipe-separated "lat,lon|lat,lon|..." string
   const locationParts: string[] = [];
@@ -187,6 +190,7 @@ export function buildOptimizationRequest(
   }
 
   const request: NBOptimizationRequest = {
+    ...(description ? { description } : {}),
     locations: {
       id: 1,
       location: locationParts,
@@ -213,10 +217,18 @@ export async function submitOptimization(request: NBOptimizationRequest): Promis
 
   console.log(`[NB.ai Optimizer] Submitting optimization: ${request.jobs.length} jobs, ${request.locations.location.length} locations`);
 
+  const fetchStart = Date.now();
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(request),
+  });
+  logApiCall({
+    api_name: "nbai_optimization",
+    endpoint: "/optimization/v2",
+    method: "POST",
+    status_code: res.status,
+    response_time_ms: Date.now() - fetchStart,
   });
 
   if (!res.ok) {
@@ -273,14 +285,15 @@ export async function pollForResult(
 // --- Result Parsing ---
 
 function identifySelectedGame(
-  arrivalEpoch: number,
+  serviceStartEpoch: number,
   games: ScheduledGame[],
 ): ScheduledGame {
-  // Find game whose time_window contains the arrival
+  // Match service start time against the same time windows sent to NB.ai:
+  // [gameEpoch - PRE_GAME_WINDOW_HOURS * 3600, gameEpoch]
   for (const game of games) {
     const gameEpoch = Math.floor(new Date(game.date_time).getTime() / 1000);
     const windowStart = gameEpoch - PRE_GAME_WINDOW_HOURS * 3600;
-    if (arrivalEpoch >= windowStart && arrivalEpoch <= gameEpoch + GAME_SERVICE_SECONDS) {
+    if (serviceStartEpoch >= windowStart && serviceStartEpoch <= gameEpoch) {
       return game;
     }
   }
@@ -290,7 +303,7 @@ function identifySelectedGame(
   let bestDiff = Infinity;
   for (const game of games) {
     const gameEpoch = Math.floor(new Date(game.date_time).getTime() / 1000);
-    const diff = Math.abs(arrivalEpoch - gameEpoch);
+    const diff = Math.abs(serviceStartEpoch - gameEpoch);
     if (diff < bestDiff) {
       bestDiff = diff;
       bestGame = game;
@@ -332,7 +345,7 @@ export function parseOptimizationResult(
     if (!jobEntry) continue;
 
     assignedJobIds.add(step.id);
-    const game = identifySelectedGame(step.arrival, jobEntry.games);
+    const game = identifySelectedGame(step.arrival + step.waiting_time, jobEntry.games);
     const distanceMiles = Math.round(step.distance * METERS_TO_MILES);
 
     // Classify car vs air using haversine between previous and current location
@@ -408,6 +421,7 @@ export async function optimizeRouteWithNB(
   endDate: string | null,
   parks: Park[],
   gamesByPark: Map<string, ScheduledGame[]>,
+  description?: string,
 ): Promise<OptimizedRoute> {
   const { request, jobGameMap } = buildOptimizationRequest(
     startLocation,
@@ -416,6 +430,7 @@ export async function optimizeRouteWithNB(
     endDate,
     parks,
     gamesByPark,
+    description,
   );
 
   if (request.jobs.length === 0) {

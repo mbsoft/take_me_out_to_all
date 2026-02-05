@@ -36,8 +36,8 @@ interface ItineraryMapProps {
   games: MapGame[];
   stopovers?: MapStopover[];
   segmentModes?: string[];
-  startLocation?: { lat: number; lon: number } | null;
-  endLocation?: { lat: number; lon: number } | null;
+  startLocation?: { lat: number; lon: number; label?: string } | null;
+  endLocation?: { lat: number; lon: number; label?: string } | null;
   travelMode: string;
   allTeams?: Array<{ abbr: string; lat: number; lon: number; stadium_name: string }>;
   /** All 30 ballparks to show small team logos on the map */
@@ -1023,6 +1023,7 @@ export default function ItineraryMap({
                       <>
                         <div className="flex items-center gap-2 rounded bg-green-500/20 border border-green-500/30 px-2 py-1.5 text-xs">
                           <span className="font-semibold text-green-400">Start</span>
+                          {startLocation?.label && <span className="text-muted-foreground truncate">{startLocation.label}</span>}
                         </div>
                         {(games.length > 0 || endLocation) && modeIcon(segIdx++)}
                       </>
@@ -1070,6 +1071,7 @@ export default function ItineraryMap({
                     {endLocation && (
                       <div className="flex items-center gap-2 rounded bg-destructive/20 border border-destructive/30 px-2 py-1.5 text-xs">
                         <span className="font-semibold text-destructive">End</span>
+                          {endLocation?.label && <span className="text-muted-foreground truncate">{endLocation.label}</span>}
                       </div>
                     )}
                     {games.length === 0 && !startLocation && !endLocation && (

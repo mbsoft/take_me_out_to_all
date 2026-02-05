@@ -1,8 +1,24 @@
+"use client";
+
+import { useEffect } from "react";
+import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
 
 export default function Home() {
+  const { status } = useSession();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (status === "authenticated") router.push("/dashboard");
+  }, [status, router]);
+
+  if (status !== "unauthenticated") {
+    return null;
+  }
+
   return (
     <div className="flex flex-col items-center justify-center min-h-[70vh] text-center space-y-8">
       <div className="space-y-4">
