@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { GameMatchup } from "@/components/team-logo";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { ExternalLink, Ticket, Loader2, X, StickyNote, Check, Camera, Plus, Trash2, Lock, Unlock } from "lucide-react";
+import { ExternalLink, Ticket, Loader2, X, StickyNote, Check, Camera, Plus, Trash2, Lock, Unlock, DollarSign, BedDouble, ParkingCircle } from "lucide-react";
+import { getDefaultCosts, formatCurrency } from "@/lib/cost-calculator";
 
 interface Game {
   game_id: number;
@@ -106,6 +107,48 @@ function formatTime(dt: string, homeTeam: string) {
 function formatPrice(price: number | null) {
   if (price == null) return "—";
   return `$${price}`;
+}
+
+function StopCostEstimate({ averagePrice }: { averagePrice: number | null }) {
+  const defaults = useMemo(() => getDefaultCosts(), []);
+  const ticketCost = averagePrice != null ? averagePrice * defaults.ticketsPerGame : 0;
+  const total = ticketCost + defaults.parkingPerGame + defaults.hotelPerNight;
+
+  return (
+    <div>
+      <h3 className="text-sm font-semibold mb-2 flex items-center gap-1.5">
+        <DollarSign className="h-4 w-4" />
+        Stop Cost Estimate
+      </h3>
+      <div className="space-y-1.5 text-sm">
+        <div className="flex items-center justify-between">
+          <span className="flex items-center gap-1.5 text-muted-foreground">
+            <Ticket className="h-3.5 w-3.5" />
+            Tickets (x{defaults.ticketsPerGame})
+          </span>
+          <span className="font-medium">{averagePrice != null ? formatCurrency(ticketCost) : "—"}</span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="flex items-center gap-1.5 text-muted-foreground">
+            <ParkingCircle className="h-3.5 w-3.5" />
+            Parking
+          </span>
+          <span className="font-medium">{formatCurrency(defaults.parkingPerGame)}</span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="flex items-center gap-1.5 text-muted-foreground">
+            <BedDouble className="h-3.5 w-3.5" />
+            Hotel (1 night)
+          </span>
+          <span className="font-medium">{formatCurrency(defaults.hotelPerNight)}</span>
+        </div>
+        <div className="flex items-center justify-between border-t pt-1.5">
+          <span className="font-semibold">Stop Total</span>
+          <span className="font-bold text-green-600">{averagePrice != null ? formatCurrency(total) : "—"}</span>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export function GameDetailPanel({ game, open, onClose, itineraryId, onNotesChange, onLockedChange }: GameDetailPanelProps) {
@@ -360,6 +403,11 @@ export function GameDetailPanel({ game, open, onClose, itineraryId, onNotesChang
                   </div>
                 )}
               </div>
+
+              {/* Per-stop cost estimate */}
+              {event && !loading && (
+                <StopCostEstimate averagePrice={event.stats.average_price} />
+              )}
 
               {/* Notes */}
               <div>
