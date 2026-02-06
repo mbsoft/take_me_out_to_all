@@ -88,6 +88,12 @@ interface ItineraryMapProps {
   onGameClick?: (gameId: number) => void;
   /** Callback when a segment's travel mode is toggled in the side panel */
   onSegmentModeToggle?: (segmentIndex: number, newMode: "car" | "air") => void;
+  /** Callback when directions data is loaded (exposes legs for cost calculations) */
+  onDirectionsLoaded?: (data: {
+    legs: Array<{ distance: number; duration: number; mode: string }>;
+    drivingDistance: number;
+    airDistance: number;
+  }) => void;
 }
 
 /** MLB team timezone offsets from UTC (standard time, adjust for DST) */
@@ -231,6 +237,7 @@ export default function ItineraryMap({
   shareToken,
   onGameClick,
   onSegmentModeToggle,
+  onDirectionsLoaded,
 }: ItineraryMapProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapRef = useRef<{ map: maplibregl.Map } | null>(null);
@@ -719,6 +726,11 @@ export default function ItineraryMap({
                 drivingDuration: data.drivingDuration ?? 0,
                 airDistance: data.airDistance ?? 0,
                 airDuration: data.airDuration ?? 0,
+              });
+              onDirectionsLoaded?.({
+                legs: data.legs ?? [],
+                drivingDistance: data.drivingDistance ?? 0,
+                airDistance: data.airDistance ?? 0,
               });
             } else {
               console.warn("No coordinates decoded from geometries, falling back to straight lines");

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Trash2, ExternalLink, Shield } from "lucide-react";
+import { Trash2, ExternalLink, Shield, DollarSign } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/dialog";
 import { goalLabel as getGoalLabel, filterTeamsByGoal } from "@/lib/goal-utils";
 import { getTeamLogoPath } from "@/lib/team-logos";
+import { formatCurrency } from "@/lib/cost-calculator";
 
 interface Itinerary {
   id: string;
@@ -69,6 +70,7 @@ export default function DashboardPage() {
   const [news, setNews] = useState<NewsArticle[]>([]);
   const [events, setEvents] = useState<ScoreboardEvent[]>([]);
   const [teams, setTeams] = useState<Array<{ abbr: string; league?: string }>>([]);
+  const [itineraryCosts, setItineraryCosts] = useState<Record<string, number>>({});
 
   useEffect(() => {
     if (status === "unauthenticated") router.push("/login");
@@ -90,6 +92,27 @@ export default function DashboardPage() {
         });
     }
   }, [status]);
+
+  // Fetch costs for each itinerary with games
+  useEffect(() => {
+    if (itineraries.length === 0) return;
+    const withGames = itineraries.filter((it) => it.game_count > 0);
+    if (withGames.length === 0) return;
+    Promise.all(
+      withGames.map((it) =>
+        fetch(`/api/itineraries/${it.id}/costs`)
+          .then((r) => r.json())
+          .then((data) => [it.id, data.breakdown?.grandTotal ?? null] as [string, number | null])
+          .catch(() => [it.id, null] as [string, number | null])
+      )
+    ).then((entries) => {
+      const record: Record<string, number> = {};
+      for (const [id, cost] of entries) {
+        if (cost != null) record[id] = cost;
+      }
+      setItineraryCosts(record);
+    });
+  }, [itineraries]);
 
   // Fetch teams for goal icons
   useEffect(() => {
@@ -241,9 +264,17 @@ export default function DashboardPage() {
                       </div>
                     </CardHeader>
                     <CardContent className="space-y-2">
-                      <p className="text-sm text-muted-foreground">
-                        {it.game_count} game{it.game_count !== 1 ? "s" : ""} planned
-                      </p>
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm text-muted-foreground">
+                          {it.game_count} game{it.game_count !== 1 ? "s" : ""} planned
+                        </p>
+                        {itineraryCosts[it.id] != null && (
+                          <span className="flex items-center gap-1 text-sm font-medium text-green-600">
+                            <DollarSign className="h-3.5 w-3.5" />
+                            Est. {formatCurrency(itineraryCosts[it.id])}
+                          </span>
+                        )}
+                      </div>
                       {teams.length > 0 && (
                         <div className="flex flex-wrap gap-1">
                           {filterTeamsByGoal(teams, it.goal, it.custom_teams).map((t) => {
