@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 import { TeamLogo } from "@/components/team-logo";
+import { GameDetailDialog } from "@/components/game-detail-dialog";
 import ItineraryMap from "@/components/itinerary-map";
 import { teamsData } from "@/lib/teams-data";
 import { goalLabel } from "@/lib/goal-utils";
@@ -98,6 +99,8 @@ export default function SharePage() {
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [view, setView] = useState<"list" | "map">("list");
+  const [selectedGame, setSelectedGame] = useState<SharedGame | null>(null);
+  const [localSegmentModes, setLocalSegmentModes] = useState<string[] | null>(null);
 
   useEffect(() => {
     fetch(`/api/share/${token}`)
@@ -155,6 +158,24 @@ export default function SharePage() {
     itinerary.end_lat && itinerary.end_lon
       ? { lat: itinerary.end_lat, lon: itinerary.end_lon, label: itinerary.end_location }
       : null;
+
+  // Use local overrides if the viewer has toggled any segment modes, otherwise use server data
+  const segmentModes = localSegmentModes ?? itinerary.segment_modes ?? [];
+
+  function getNumSegments(): number {
+    let n = (itinerary!.start_location ? 1 : 0) + itinerary!.games.length + (itinerary!.end_location ? 1 : 0);
+    (itinerary!.stopovers ?? []).forEach(() => n++);
+    return Math.max(0, n - 1);
+  }
+
+  function updateSegmentMode(segmentIndex: number, mode: "car" | "air") {
+    const numSegments = getNumSegments();
+    const base = [...segmentModes];
+    const next = base.length >= numSegments ? base.slice(0, numSegments) : [...base];
+    while (next.length < numSegments) next.push("car");
+    next[segmentIndex] = mode;
+    setLocalSegmentModes(next);
+  }
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
@@ -239,7 +260,7 @@ export default function SharePage() {
               locked: g.locked,
             }))}
             stopovers={itinerary.stopovers}
-            segmentModes={itinerary.segment_modes}
+            segmentModes={segmentModes}
             startLocation={startLoc}
             endLocation={endLoc}
             travelMode={itinerary.travel_mode}
@@ -251,6 +272,11 @@ export default function SharePage() {
             }))}
             visitedParks={visitedParks}
             shareToken={token}
+            onGameClick={(gameId) => {
+              const game = itinerary.games.find((g) => g.game_id === gameId);
+              if (game) setSelectedGame(game);
+            }}
+            onSegmentModeToggle={(segIdx, newMode) => updateSegmentMode(segIdx, newMode)}
           />
         </div>
       )}
@@ -268,88 +294,111 @@ export default function SharePage() {
             )}
 
             <div className="space-y-0">
-              {itinerary.games.map((game, idx) => (
-                <div key={game.game_id}>
-                  {/* Segment mode indicator */}
-                  {idx > 0 && itinerary.segment_modes && itinerary.segment_modes[idx] && (
-                    <div className="flex items-center justify-center py-2 text-xs text-muted-foreground">
-                      {itinerary.segment_modes[idx] === "air" ? (
-                        <Plane className="h-3 w-3 mr-1" />
-                      ) : (
-                        <Car className="h-3 w-3 mr-1" />
-                      )}
-                      {itinerary.segment_modes[idx] === "air" ? "Fly" : "Drive"}
-                    </div>
-                  )}
-                  {idx === 0 && itinerary.segment_modes && itinerary.segment_modes[0] && (
-                    <div className="flex items-center justify-center py-2 text-xs text-muted-foreground">
-                      {itinerary.segment_modes[0] === "air" ? (
-                        <Plane className="h-3 w-3 mr-1" />
-                      ) : (
-                        <Car className="h-3 w-3 mr-1" />
-                      )}
-                      {itinerary.segment_modes[0] === "air" ? "Fly" : "Drive"}
-                    </div>
-                  )}
-
-                  {/* Game card */}
-                  <div className="flex items-center gap-3 rounded-lg border p-3">
-                    <span className="text-lg font-bold text-muted-foreground w-8 text-center shrink-0">
-                      {idx + 1}
-                    </span>
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <img
-                        src={getTeamLogoPath(game.away_team) || ""}
-                        alt={game.away_team}
-                        className="h-6 w-6"
-                      />
-                      <span className="text-xs text-muted-foreground">@</span>
-                      <img
-                        src={getTeamLogoPath(game.home_team) || ""}
-                        alt={game.home_team}
-                        className="h-6 w-6"
-                      />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="font-medium text-sm">
-                        {game.away_team_name || game.away_team} @ {game.home_team_name || game.home_team}
+              {(() => {
+                let segIdx = 0;
+                const renderSegmentToggle = (segmentIndex: number) => {
+                  const mode = segmentModes[segmentIndex] ?? "car";
+                  return (
+                    <div key={`seg-${segmentIndex}`} className="flex items-center justify-center gap-2 py-1">
+                      <div className="h-px flex-1 bg-border" />
+                      <div className="inline-flex rounded-md border border-input bg-background">
+                        <button
+                          type="button"
+                          onClick={() => updateSegmentMode(segmentIndex, "car")}
+                          className={`flex items-center gap-1 px-2 py-1 text-xs transition-colors ${
+                            mode === "car"
+                              ? "bg-primary text-primary-foreground"
+                              : "hover:bg-muted"
+                          }`}
+                          title="Drive"
+                        >
+                          <Car className="h-3 w-3" />
+                          <span>Drive</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => updateSegmentMode(segmentIndex, "air")}
+                          className={`flex items-center gap-1 px-2 py-1 text-xs transition-colors border-l border-input ${
+                            mode === "air"
+                              ? "bg-primary text-primary-foreground"
+                              : "hover:bg-muted"
+                          }`}
+                          title="Fly"
+                        >
+                          <Plane className="h-3 w-3" />
+                          <span>Fly</span>
+                        </button>
                       </div>
-                      {game.stadium_name && (
-                        <div className="text-xs text-muted-foreground">
-                          {game.stadium_name}{game.city ? `, ${game.city}` : ""}
-                          {game.state ? `, ${game.state}` : ""}
+                      <div className="h-px flex-1 bg-border" />
+                    </div>
+                  );
+                };
+                return (
+                  <>
+                    {itinerary.start_location && itinerary.games.length > 0 && renderSegmentToggle(segIdx++)}
+                    {itinerary.games.map((game, idx) => {
+                      const stopoversAfter = (itinerary.stopovers ?? []).filter((s: any) => s.after_index === idx);
+                      return (
+                        <div key={game.game_id}>
+                          {idx > 0 && renderSegmentToggle(segIdx++)}
+
+                          {/* Game card */}
+                          <div
+                            className="flex items-center gap-3 rounded-lg border p-3 cursor-pointer hover:bg-muted/50 transition-colors"
+                            onClick={() => setSelectedGame(game)}
+                          >
+                            <span className="text-lg font-bold text-muted-foreground w-8 text-center shrink-0">
+                              {idx + 1}
+                            </span>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <img
+                                src={getTeamLogoPath(game.away_team) || ""}
+                                alt={game.away_team}
+                                className="h-6 w-6"
+                              />
+                              <span className="text-xs text-muted-foreground">@</span>
+                              <img
+                                src={getTeamLogoPath(game.home_team) || ""}
+                                alt={game.home_team}
+                                className="h-6 w-6"
+                              />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="font-medium text-sm">
+                                {game.away_team_name || game.away_team} @ {game.home_team_name || game.home_team}
+                              </div>
+                              {game.stadium_name && (
+                                <div className="text-xs text-muted-foreground">
+                                  {game.stadium_name}{game.city ? `, ${game.city}` : ""}
+                                  {game.state ? `, ${game.state}` : ""}
+                                </div>
+                              )}
+                            </div>
+                            <div className="text-right text-sm shrink-0">
+                              <div className="font-medium">
+                                {formatDate(game.date_time, game.home_team)}
+                              </div>
+                              <div className="text-xs text-muted-foreground">
+                                {formatTime(game.date_time, game.home_team)}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Account for stopovers in segment indexing */}
+                          {stopoversAfter.length > 0 && (() => { segIdx += stopoversAfter.length; return null; })()}
                         </div>
-                      )}
-                    </div>
-                    <div className="text-right text-sm shrink-0">
-                      <div className="font-medium">
-                        {formatDate(game.date_time, game.home_team)}
+                      );
+                    })}
+                    {itinerary.end_location && renderSegmentToggle(segIdx++)}
+                    {itinerary.end_location && (
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground mt-3 pt-3 border-t">
+                        <MapPin className="h-4 w-4 shrink-0" />
+                        <span>End: {itinerary.end_location}</span>
                       </div>
-                      <div className="text-xs text-muted-foreground">
-                        {formatTime(game.date_time, game.home_team)}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-
-              {/* End segment + location */}
-              {itinerary.end_location && itinerary.segment_modes && itinerary.segment_modes.length > itinerary.games.length && (
-                <div className="flex items-center justify-center py-2 text-xs text-muted-foreground">
-                  {itinerary.segment_modes[itinerary.games.length] === "air" ? (
-                    <Plane className="h-3 w-3 mr-1" />
-                  ) : (
-                    <Car className="h-3 w-3 mr-1" />
-                  )}
-                  {itinerary.segment_modes[itinerary.games.length] === "air" ? "Fly" : "Drive"}
-                </div>
-              )}
-              {itinerary.end_location && (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground mt-3 pt-3 border-t">
-                  <MapPin className="h-4 w-4 shrink-0" />
-                  <span>End: {itinerary.end_location}</span>
-                </div>
-              )}
+                    )}
+                  </>
+                );
+              })()}
             </div>
 
             {itinerary.games.length === 0 && (
@@ -360,6 +409,12 @@ export default function SharePage() {
           </CardContent>
         </Card>
       )}
+
+      <GameDetailDialog
+        game={selectedGame}
+        open={selectedGame !== null}
+        onOpenChange={(open) => { if (!open) setSelectedGame(null); }}
+      />
     </div>
   );
 }
