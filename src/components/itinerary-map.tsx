@@ -49,7 +49,6 @@ function getCachedLogoElement(abbr: string, size: number): HTMLImageElement {
   return img;
 }
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { useTheme } from "@/components/theme-provider";
 import type maplibregl from "maplibre-gl";
 
 interface MapGame {
@@ -248,8 +247,6 @@ export default function ItineraryMap({
   } | null>(null);
   const [panelOpen, setPanelOpen] = useState(true);
   const [loadingRoute, setLoadingRoute] = useState(false);
-  const { theme } = useTheme();
-  const appliedThemeRef = useRef<string | null>(null);
 
   // Load SDK, init map, and signal ready — all in one effect to avoid race conditions
   useEffect(() => {
@@ -276,18 +273,12 @@ export default function ItineraryMap({
         (window as any).__Marker = maplibregl.Marker;
         (window as any).__Popup = maplibregl.Popup;
 
-        // Use MapTiler winter style for light mode, NextBillion dark style for dark mode
-        const getStyleUrl = (dark: boolean) => dark
-          ? "/api/map-proxy/maps/dark/style.json"
-          : "https://api.maptiler.com/maps/winter-v4/style.json?key=r1TgDWJZq8U2BMrwNqyE";
-
-        // Check localStorage for current theme (avoids flash of wrong theme)
-        const savedTheme = localStorage.getItem("theme") || "light";
-        const isDark = savedTheme === "dark";
+        // Always use dark style for the map
+        const darkStyleUrl = "/api/map-proxy/maps/dark/style.json";
 
         const map = new maplibregl.Map({
           container: mapContainer.current,
-          style: getStyleUrl(isDark),
+          style: darkStyleUrl,
           zoom: 3.5,
           center: [-98.5795, 39.8283],
           minZoom: 2,
@@ -310,8 +301,6 @@ export default function ItineraryMap({
           });
         }
 
-        // Store the getStyleUrl function for use in color scheme listener
-        (window as any).__getMapStyleUrl = getStyleUrl;
       } catch (err) {
         console.error("Failed to load maplibre-gl:", err);
       }
@@ -792,216 +781,7 @@ export default function ItineraryMap({
     };
   }, [mapReady, renderMarkers]);
 
-  // Listen for theme changes and update map style
-  useEffect(() => {
-    if (!mapReady || !mapRef.current) return;
-
-    const map = mapRef.current.map;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const getStyleUrl = (window as any).__getMapStyleUrl;
-    if (!getStyleUrl) return;
-
-    // Skip if theme hasn't changed since last application
-    if (appliedThemeRef.current === theme) return;
-    
-    // On first run after map is ready, record the current theme
-    if (appliedThemeRef.current === null) {
-      appliedThemeRef.current = theme;
-      return;
-    }
-
-    const isDark = theme === "dark";
-    const newStyleUrl = getStyleUrl(isDark);
-    
-    appliedThemeRef.current = theme;
-
-    // Save current state
-    const currentCenter = map.getCenter();
-    const currentZoom = map.getZoom();
-    const currentBearing = map.getBearing();
-    const currentPitch = map.getPitch();
-
-    map.setStyle(newStyleUrl);
-
-    // After style loads, restore everything without calling fitBounds
-    map.once('styledata', () => {
-      if (!mapRef.current) return;
-
-      // Restore viewport
-      map.jumpTo({
-        center: currentCenter,
-        zoom: currentZoom,
-        bearing: currentBearing,
-        pitch: currentPitch,
-      });
-
-      // Re-render markers only (no fitBounds)
-      renderMarkers();
-
-      // Re-fetch and render routes (without fitBounds)
-      setTimeout(async () => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const Marker = (window as any).__Marker;
-
-        // Remove old route layers/sources and airplane markers
-        if (map.getLayer("route-line")) map.removeLayer("route-line");
-        if (map.getSource("route")) map.removeSource("route");
-        if (map.getLayer("flight-line")) map.removeLayer("flight-line");
-        if (map.getSource("flights")) map.removeSource("flights");
-        airplaneMarkersRef.current.forEach((m) => m.remove());
-        airplaneMarkersRef.current = [];
-
-        // Fetch and render directions
-        const waypoints: { lat: number; lon: number }[] = [];
-        const legStartAtWaypoint: number[] = [];
-        if (startLocation) {
-          waypoints.push(startLocation);
-          legStartAtWaypoint.push(0);
-        }
-        games.forEach((g, i) => {
-          if (g.lat != null && g.lon != null) {
-            waypoints.push({ lat: g.lat, lon: g.lon });
-            if (i < games.length - 1 || endLocation) legStartAtWaypoint.push(waypoints.length - 1);
-          }
-          const afterStopovers = stopovers
-            .filter((s) => s.after_index === i)
-            .sort((a, b) => a.sort_order - b.sort_order);
-          afterStopovers.forEach((s) => waypoints.push({ lat: s.lat, lon: s.lon }));
-        });
-        if (endLocation) waypoints.push(endLocation);
-
-        const numSegments = waypoints.length - 1;
-        const segment_modes_expanded: string[] = [];
-        if (segmentModes.length === numSegments) {
-          for (let w = 0; w < numSegments; w++) {
-            segment_modes_expanded.push((segmentModes[w] ?? "car") as string);
-          }
-        } else {
-          for (let w = 0; w < numSegments; w++) {
-            let leg = 0;
-            while (leg + 1 < legStartAtWaypoint.length && legStartAtWaypoint[leg + 1]! <= w) leg++;
-            segment_modes_expanded.push((segmentModes[leg] ?? "car") as string);
-          }
-        }
-
-        if (waypoints.length >= 2) {
-          try {
-            const res = await fetch("/api/directions", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                waypoints,
-                segment_modes: segment_modes_expanded.slice(0, numSegments),
-                itineraryId,
-                shareToken,
-              }),
-            });
-
-            if (res.ok) {
-              const data = await res.json();
-              if (data.geometries && data.geometries.length > 0 && mapRef.current) {
-                const allCoords: [number, number][] = [];
-                for (const geom of data.geometries) {
-                  if (geom && typeof geom === "string") {
-                    const decoded = decodePolyline6(geom);
-                    for (let i = 0; i < decoded.length; i++) {
-                      allCoords.push(decoded[i]);
-                    }
-                  }
-                }
-
-                if (allCoords.length > 0 && mapRef.current) {
-                  map.addSource("route", {
-                    type: "geojson",
-                    data: {
-                      type: "Feature",
-                      properties: {},
-                      geometry: { type: "LineString", coordinates: allCoords },
-                    },
-                  });
-                  map.addLayer({
-                    id: "route-line",
-                    type: "line",
-                    source: "route",
-                    layout: { "line-join": "round", "line-cap": "round" },
-                    paint: {
-                      "line-color": "#2563eb",
-                      "line-width": 4,
-                      "line-opacity": 0.7,
-                    },
-                  });
-
-                  // Add airplane markers
-                  const airSegments: { index: number; coords: [number, number][] }[] = [];
-                  for (let i = 0; i < (data.geometries?.length ?? 0); i++) {
-                    if (segment_modes_expanded[i] !== "air") continue;
-                    const geom = data.geometries[i];
-                    if (!geom || typeof geom !== "string") continue;
-                    const coords = decodePolyline6(geom);
-                    if (coords.length < 2) continue;
-                    airSegments.push({ index: i, coords });
-                  }
-
-                  const keyOf = (c: [number, number][]) => {
-                    const a = c[0]!;
-                    const b = c[c.length - 1]!;
-                    const s = `${a[0].toFixed(4)},${a[1].toFixed(4)}`;
-                    const t = `${b[0].toFixed(4)},${b[1].toFixed(4)}`;
-                    return s < t ? `${s}-${t}` : `${t}-${s}`;
-                  };
-                  const groups = new Map<string, typeof airSegments>();
-                  for (const seg of airSegments) {
-                    const key = keyOf(seg.coords);
-                    if (!groups.has(key)) groups.set(key, []);
-                    groups.get(key)!.push(seg);
-                  }
-
-                  const ratioFor = (group: typeof airSegments, idx: number) => {
-                    const n = group.length;
-                    if (n === 1) return 0.5;
-                    return (idx + 1) / (n + 1);
-                  };
-
-                  for (const [, group] of groups) {
-                    group.forEach((seg, idxInGroup) => {
-                      const t = ratioFor(group, idxInGroup);
-                      const coords = seg.coords;
-                      const len = coords.length - 1;
-                      const segIndex = Math.min(Math.floor(t * len), len - 1);
-                      const frac = t * len - segIndex;
-                      const p0 = coords[segIndex]!;
-                      const p1 = coords[segIndex + 1]!;
-                      const lng = p0[0] + frac * (p1[0] - p0[0]);
-                      const lat = p0[1] + frac * (p1[1] - p0[1]);
-                      const bearing = bearingDeg(p0, p1);
-                      const el = createAirplaneElement();
-                      const svg = el.querySelector("svg") as SVGElement | null;
-                      if (svg) svg.style.transform = `rotate(${bearing}deg)`;
-                      const marker = new Marker({ element: el })
-                        .setLngLat([lng, lat])
-                        .addTo(map);
-                      airplaneMarkersRef.current.push(marker);
-                    });
-                  }
-
-                  setRouteInfo({
-                    totalDistance: data.totalDistance ?? 0,
-                    totalDuration: data.totalDuration ?? 0,
-                    drivingDistance: data.drivingDistance ?? 0,
-                    drivingDuration: data.drivingDuration ?? 0,
-                    airDistance: data.airDistance ?? 0,
-                    airDuration: data.airDuration ?? 0,
-                  });
-                }
-              }
-            }
-          } catch (err) {
-            console.error("Failed to re-fetch directions after style change:", err);
-          }
-        }
-      }, 100);
-    });
-  }, [theme, mapReady, renderMarkers, games, stopovers, segmentModes, startLocation, endLocation, itineraryId, shareToken]);
+  // Map always uses dark style regardless of app theme
 
   return (
     <div className="relative">
