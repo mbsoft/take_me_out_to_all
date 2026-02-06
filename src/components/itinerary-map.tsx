@@ -1005,7 +1005,7 @@ export default function ItineraryMap({
 
   return (
     <div className="relative">
-      <div ref={mapContainer} className="w-full rounded-lg border h-[calc(90vh-260px)] min-h-[400px]" />
+      <div ref={mapContainer} className="w-full rounded-lg border h-[calc(100vh-260px)] min-h-[500px]" />
 
       {/* Route loading spinner */}
       {loadingRoute && (

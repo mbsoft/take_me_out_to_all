@@ -31,7 +31,7 @@ import { goalLabel, filterTeamsByGoal } from "@/lib/goal-utils";
 const ItineraryMap = dynamic(() => import("@/components/itinerary-map"), {
   ssr: false,
   loading: () => (
-    <div className="w-full h-[450px] rounded-lg border flex items-center justify-center bg-muted/50">
+    <div className="w-full h-[550px] rounded-lg border flex items-center justify-center bg-muted/50">
       <p className="text-sm text-muted-foreground">Loading map...</p>
     </div>
   ),
