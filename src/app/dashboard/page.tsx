@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Trash2, ExternalLink } from "lucide-react";
+import { Trash2, ExternalLink, Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -211,9 +211,19 @@ export default function DashboardPage() {
         <div className="space-y-6">
           <div className="flex items-center justify-between">
             <h1 className="text-2xl font-bold">Your Itineraries</h1>
-            <Link href="/itinerary/new">
-              <Button>New Itinerary</Button>
-            </Link>
+            <div className="flex items-center gap-2">
+              {session?.user?.role === "admin" && (
+                <Link href="/admin">
+                  <Button variant="outline">
+                    <Shield className="h-4 w-4 mr-2" />
+                    Admin
+                  </Button>
+                </Link>
+              )}
+              <Link href="/itinerary/new">
+                <Button>New Itinerary</Button>
+              </Link>
+            </div>
           </div>
           {itineraries.length === 0 ? (
             <Card>
