@@ -211,19 +211,14 @@ export default function DashboardPage() {
         <div className="space-y-6">
           <div className="flex items-center justify-between">
             <h1 className="text-2xl font-bold">Your Itineraries</h1>
-            <div className="flex items-center gap-2">
-              {session?.user?.role === "admin" && (
-                <Link href="/admin">
-                  <Button variant="outline">
-                    <Shield className="h-4 w-4 mr-2" />
-                    Admin
-                  </Button>
-                </Link>
-              )}
-              <Link href="/itinerary/new">
-                <Button>New Itinerary</Button>
+            {session?.user?.role === "admin" && (
+              <Link href="/admin">
+                <Button variant="outline">
+                  <Shield className="h-4 w-4 mr-2" />
+                  Admin
+                </Button>
               </Link>
-            </div>
+            )}
           </div>
           {itineraries.length === 0 ? (
             <Card>
