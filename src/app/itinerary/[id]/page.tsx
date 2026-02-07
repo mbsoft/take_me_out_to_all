@@ -27,8 +27,6 @@ import { TeamLogo, GameMatchup } from "@/components/team-logo";
 import { PlaceAutocomplete, type PlaceResult } from "@/components/place-autocomplete";
 import { GameDetailPanel } from "@/components/game-detail-panel";
 import { goalLabel, filterTeamsByGoal } from "@/lib/goal-utils";
-import { calculateTripCosts, calculateSegmentCost, getDefaultCosts, formatCurrency, type TripCostBreakdown } from "@/lib/cost-calculator";
-import { TripCostSummary } from "@/components/trip-cost-summary";
 
 const ItineraryMap = dynamic(() => import("@/components/itinerary-map"), {
   ssr: false,
@@ -193,8 +191,6 @@ export default function ItineraryBuilderPage() {
   const [editingName, setEditingName] = useState(false);
   const [nameEditValue, setNameEditValue] = useState("");
   const [directionsLegs, setDirectionsLegs] = useState<Array<{ distance: number; duration: number; mode: string }>>([]);
-  const [ticketPrices, setTicketPrices] = useState<Record<number, number | null>>({});
-  const [costLoading, setCostLoading] = useState(false);
 
   useEffect(() => {
     if (status === "unauthenticated") router.push("/login");
@@ -206,6 +202,20 @@ export default function ItineraryBuilderPage() {
     const data = await res.json();
     setItinerary(data);
     setShareToken(data.share_token ?? null);
+
+    // Load cached legs from route_geometry for cost calculation
+    if (data.route_geometry) {
+      try {
+        const cached = typeof data.route_geometry === "string"
+          ? JSON.parse(data.route_geometry)
+          : data.route_geometry;
+        if (cached.legs && Array.isArray(cached.legs)) {
+          setDirectionsLegs(cached.legs);
+        }
+      } catch {
+        // Ignore parse errors
+      }
+    }
 
     // Set start date filter: use last game's date if games exist, otherwise itinerary's start_date
     if (data.games?.length > 0) {
@@ -252,42 +262,6 @@ export default function ItineraryBuilderPage() {
     if (!itinerary) return;
     loadSuggestions();
   }, [itinerary, loadSuggestions]);
-
-  // Fetch SeatGeek ticket prices for all games in itinerary
-  useEffect(() => {
-    if (!itinerary || itinerary.games.length === 0) {
-      setTicketPrices({});
-      return;
-    }
-    setCostLoading(true);
-    Promise.all(
-      itinerary.games.map((g) => {
-        const params = new URLSearchParams({
-          home_team: g.home_team,
-          away_team: g.away_team,
-          date_time: g.date_time,
-        });
-        return fetch(`/api/seatgeek?${params}`)
-          .then((r) => r.json())
-          .then((data) => {
-            const avg = data.events?.[0]?.stats?.average_price ?? null;
-            return [g.game_id, avg] as [number, number | null];
-          })
-          .catch(() => [g.game_id, null] as [number, number | null]);
-      })
-    ).then((entries) => {
-      const record: Record<number, number | null> = {};
-      for (const [id, price] of entries) record[id] = price;
-      setTicketPrices(record);
-      setCostLoading(false);
-    });
-  }, [itinerary?.games.map((g) => g.game_id).join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const costBreakdown = useMemo<TripCostBreakdown | null>(() => {
-    if (!itinerary || itinerary.games.length === 0) return null;
-    if (directionsLegs.length === 0 && Object.keys(ticketPrices).length === 0) return null;
-    return calculateTripCosts(directionsLegs, itinerary.games, ticketPrices);
-  }, [directionsLegs, itinerary?.games, ticketPrices]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleDirectionsLoaded = useCallback((data: {
     legs: Array<{ distance: number; duration: number; mode: string }>;
@@ -795,11 +769,6 @@ export default function ItineraryBuilderPage() {
         </CardContent>
       </Card>
 
-      {/* Trip cost estimate */}
-      {itinerary.games.length > 0 && (
-        <TripCostSummary breakdown={costBreakdown} loading={costLoading && !costBreakdown} />
-      )}
-
       {/* View toggle: List vs Map */}
       <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as "list" | "map")}>
         <TabsList>
@@ -1033,10 +1002,10 @@ export default function ItineraryBuilderPage() {
                         <div className="space-y-1">
                           {(() => {
                             let segIdx = 0;
-                            const defaults = getDefaultCosts();
                             const renderSegmentSelector = (segmentIndex: number) => {
                               const mode = segmentModes[segmentIndex] ?? "car";
-                              const leg = costBreakdown?.segments[segmentIndex];
+                              const leg = directionsLegs[segmentIndex];
+                              const distanceMiles = leg ? Math.round(leg.distance / 1609.34) : 0;
                               return (
                                 <div key={`seg-${segmentIndex}`} className="flex flex-col items-center py-1">
                                   <div className="flex w-full items-center gap-2">
@@ -1071,9 +1040,9 @@ export default function ItineraryBuilderPage() {
                                     </div>
                                     <div className="h-px flex-1 bg-border" />
                                   </div>
-                                  {leg && leg.distanceMiles > 0 && (
+                                  {distanceMiles > 0 && (
                                     <span className="text-[11px] text-muted-foreground mt-0.5">
-                                      {leg.distanceMiles.toLocaleString()} mi &middot; ~{formatCurrency(leg.cost)}
+                                      {distanceMiles.toLocaleString()} mi
                                     </span>
                                   )}
                                 </div>

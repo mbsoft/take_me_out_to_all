@@ -64,6 +64,7 @@ export default function DashboardPage() {
   const router = useRouter();
   const [itineraries, setItineraries] = useState<Itinerary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [costRefreshKey, setCostRefreshKey] = useState(0);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [itineraryToDelete, setItineraryToDelete] = useState<Itinerary | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -76,13 +77,17 @@ export default function DashboardPage() {
     if (status === "unauthenticated") router.push("/login");
   }, [status, router]);
 
+  // Fetch itineraries on mount and when status changes
   useEffect(() => {
     if (status === "authenticated") {
-      fetch("/api/itineraries")
+      // Use cache: no-store to always get fresh data when returning to dashboard
+      fetch("/api/itineraries", { cache: "no-store" })
         .then((r) => r.json())
         .then((data) => {
           setItineraries(data);
           setLoading(false);
+          // Increment refresh key to force costs to re-fetch
+          setCostRefreshKey((k) => k + 1);
           if (Array.isArray(data) && !sessionStorage.getItem("skip_onboarding")) {
             const userCreated = data.filter((it: Itinerary) => !it.name.startsWith("Example: "));
             if (userCreated.length === 0) {
@@ -91,16 +96,16 @@ export default function DashboardPage() {
           }
         });
     }
-  }, [status]);
+  }, [status, router]);
 
-  // Fetch costs for each itinerary with games
+  // Fetch costs for each itinerary with games - re-runs when itineraries load or costRefreshKey changes
   useEffect(() => {
     if (itineraries.length === 0) return;
     const withGames = itineraries.filter((it) => it.game_count > 0);
     if (withGames.length === 0) return;
     Promise.all(
       withGames.map((it) =>
-        fetch(`/api/itineraries/${it.id}/costs`)
+        fetch(`/api/itineraries/${it.id}/costs`, { cache: "no-store" })
           .then((r) => r.json())
           .then((data) => [it.id, data.breakdown?.grandTotal ?? null] as [string, number | null])
           .catch(() => [it.id, null] as [string, number | null])
@@ -112,7 +117,7 @@ export default function DashboardPage() {
       }
       setItineraryCosts(record);
     });
-  }, [itineraries]);
+  }, [itineraries, costRefreshKey]);
 
   // Fetch teams for goal icons
   useEffect(() => {
@@ -252,7 +257,7 @@ export default function DashboardPage() {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {itineraries.map((it) => (
-                <Card key={it.id} className="hover:bg-muted/50 transition-colors">
+                <Card key={it.id} className="dark:bg-zinc-800 hover:bg-muted/50 dark:hover:bg-zinc-700 transition-colors">
                   <Link href={`/itinerary/${it.id}`} className="block">
                     <CardHeader className="pb-2">
                       <div className="flex items-center justify-between">

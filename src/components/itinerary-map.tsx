@@ -243,6 +243,8 @@ export default function ItineraryMap({
   const mapRef = useRef<{ map: maplibregl.Map } | null>(null);
   const markersRef = useRef<maplibregl.Marker[]>([]);
   const airplaneMarkersRef = useRef<maplibregl.Marker[]>([]);
+  const lastDirectionsRequestRef = useRef<string>("");
+  const abortControllerRef = useRef<AbortController | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const [routeInfo, setRouteInfo] = useState<{
     totalDistance: number;
@@ -321,6 +323,10 @@ export default function ItineraryMap({
         mapRef.current.map?.remove();
         mapRef.current = null;
       }
+      // Abort any in-flight directions request and reset tracking
+      abortControllerRef.current?.abort();
+      abortControllerRef.current = null;
+      lastDirectionsRequestRef.current = "";
       setMapReady(false);
     };
   }, []); // runs once on mount
@@ -529,7 +535,62 @@ export default function ItineraryMap({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const Marker = (window as any).__Marker;
 
-    // Remove old route layers/sources and airplane markers
+    // Build waypoints first to check if we need to fetch directions
+    const waypoints: { lat: number; lon: number }[] = [];
+    const legStartAtWaypoint: number[] = [];
+    if (startLocation) {
+      waypoints.push(startLocation);
+      legStartAtWaypoint.push(0);
+    }
+    games.forEach((g, i) => {
+      if (g.lat != null && g.lon != null) {
+        waypoints.push({ lat: g.lat, lon: g.lon });
+        if (i < games.length - 1 || endLocation) legStartAtWaypoint.push(waypoints.length - 1);
+      }
+      const afterStopovers = stopovers
+        .filter((s) => s.after_index === i)
+        .sort((a, b) => a.sort_order - b.sort_order);
+      afterStopovers.forEach((s) => waypoints.push({ lat: s.lat, lon: s.lon }));
+    });
+    if (endLocation) waypoints.push(endLocation);
+
+    const numSegments = waypoints.length - 1;
+    const segment_modes_expanded: string[] = [];
+    if (segmentModes.length === numSegments) {
+      for (let w = 0; w < numSegments; w++) {
+        segment_modes_expanded.push((segmentModes[w] ?? "car") as string);
+      }
+    } else {
+      for (let w = 0; w < numSegments; w++) {
+        let leg = 0;
+        while (leg + 1 < legStartAtWaypoint.length && legStartAtWaypoint[leg + 1]! <= w) leg++;
+        segment_modes_expanded.push((segmentModes[leg] ?? "car") as string);
+      }
+    }
+
+    // Check deduplication BEFORE clearing route - if same request, keep existing route
+    if (waypoints.length >= 2) {
+      const requestKey = JSON.stringify({
+        waypoints,
+        segment_modes: segment_modes_expanded.slice(0, numSegments),
+        itineraryId,
+      });
+
+      // If same request is already completed or in-flight with same params, skip
+      if (requestKey === lastDirectionsRequestRef.current) {
+        // Same request - just update markers without clearing route
+        renderMarkers();
+        return;
+      }
+
+      // If a different request is in-flight, abort it to make way for this one
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      }
+    }
+
+    // Now safe to clear old route since we'll be fetching a new one
     if (map.getLayer("route-line")) map.removeLayer("route-line");
     if (map.getSource("route")) map.removeSource("route");
     if (map.getLayer("flight-line")) map.removeLayer("flight-line");
@@ -561,42 +622,17 @@ export default function ItineraryMap({
       );
     }
 
-    // Fetch directions for route polyline (games + stopovers interleaved by after_index)
-    const waypoints: { lat: number; lon: number }[] = [];
-    const legStartAtWaypoint: number[] = []; // leg L starts at waypoint index legStartAtWaypoint[L]
-    if (startLocation) {
-      waypoints.push(startLocation);
-      legStartAtWaypoint.push(0);
-    }
-    games.forEach((g, i) => {
-      if (g.lat != null && g.lon != null) {
-        waypoints.push({ lat: g.lat, lon: g.lon });
-        // Start of a new logical leg when there is a segment leaving this game (next game or end)
-        if (i < games.length - 1 || endLocation) legStartAtWaypoint.push(waypoints.length - 1);
-      }
-      const afterStopovers = stopovers
-        .filter((s) => s.after_index === i)
-        .sort((a, b) => a.sort_order - b.sort_order);
-      afterStopovers.forEach((s) => waypoints.push({ lat: s.lat, lon: s.lon }));
-    });
-    if (endLocation) waypoints.push(endLocation);
-
-    const numSegments = waypoints.length - 1;
-    // Use per-segment modes when length matches; otherwise expand from logical legs
-    const segment_modes_expanded: string[] = [];
-    if (segmentModes.length === numSegments) {
-      for (let w = 0; w < numSegments; w++) {
-        segment_modes_expanded.push((segmentModes[w] ?? "car") as string);
-      }
-    } else {
-      for (let w = 0; w < numSegments; w++) {
-        let leg = 0;
-        while (leg + 1 < legStartAtWaypoint.length && legStartAtWaypoint[leg + 1]! <= w) leg++;
-        segment_modes_expanded.push((segmentModes[leg] ?? "car") as string);
-      }
-    }
-
     if (waypoints.length >= 2) {
+      const requestKey = JSON.stringify({
+        waypoints,
+        segment_modes: segment_modes_expanded.slice(0, numSegments),
+        itineraryId,
+      });
+
+      // Create new AbortController for this request
+      const abortController = new AbortController();
+      abortControllerRef.current = abortController;
+      lastDirectionsRequestRef.current = requestKey;
       setLoadingRoute(true);
       try {
         const res = await fetch("/api/directions", {
@@ -608,6 +644,7 @@ export default function ItineraryMap({
             itineraryId,
             shareToken,
           }),
+          signal: abortController.signal,
         });
 
         if (!res.ok) {
@@ -751,12 +788,20 @@ export default function ItineraryMap({
           }
         }
       } catch (err) {
+        // Ignore aborted requests - they were cancelled intentionally
+        if (err instanceof Error && err.name === "AbortError") {
+          return;
+        }
         console.error("Failed to fetch directions:", err);
         // Fallback: draw straight lines between points
         if (map && mapRef.current) {
           drawStraightLines(map, games);
         }
       } finally {
+        // Only clear if this is still the current request
+        if (abortControllerRef.current === abortController) {
+          abortControllerRef.current = null;
+        }
         setLoadingRoute(false);
       }
     }
