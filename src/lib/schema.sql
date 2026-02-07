@@ -123,3 +123,13 @@ CREATE TABLE IF NOT EXISTS itinerary_template_stopovers (
   lon DOUBLE PRECISION NOT NULL,
   sort_order INTEGER NOT NULL DEFAULT 0
 );
+
+CREATE TABLE IF NOT EXISTS user_visited_parks (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  team_abbr TEXT NOT NULL REFERENCES teams(abbr),
+  visited_at DATE,
+  notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(user_id, team_abbr)
+);
