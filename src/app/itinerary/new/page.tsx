@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { PlaceAutocomplete, type PlaceResult } from "@/components/place-autocomplete";
 import { TeamPicker } from "@/components/team-picker";
 
+import { track } from "@/lib/analytics";
 export default function NewItineraryPage() {
   const { status } = useSession();
   const router = useRouter();
@@ -65,6 +66,7 @@ export default function NewItineraryPage() {
         return;
       }
       
+      track("trip_created", { goal, travel_mode: String(form.get("travel_mode") ?? ""), has_start: !!startPlace, has_end: !!endPlace });
       router.push(`/itinerary/${data.id}`);
     } catch (error) {
       console.error("Error creating itinerary:", error);

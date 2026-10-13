@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
+import { track } from "@/lib/analytics";
 export default function RegisterPage() {
   const router = useRouter();
   const [error, setError] = useState("");
@@ -37,6 +38,7 @@ export default function RegisterPage() {
       return;
     }
 
+    track("signup_completed", { method: "email" });
     // Redirect to verify email page
     setLoading(false);
     router.push(`/verify-email?email=${encodeURIComponent(form.get("email") as string)}`);
