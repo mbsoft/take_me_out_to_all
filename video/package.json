@@ -1,0 +1,23 @@
+{
+  "name": "take-me-out-demo-video",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Remotion demo video for Take Me Out to the Ballparks, built from real screenshots of the live app.",
+  "scripts": {
+    "preview": "remotion studio src/demo/index.ts",
+    "render": "remotion render src/demo/index.ts Demo out/take-me-out-demo.mp4",
+    "poster": "remotion still src/demo/index.ts Poster out/poster.png",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@remotion/cli": "^4.0.532",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "remotion": "^4.0.532"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "typescript": "^5.8.3"
+  }
+}
