@@ -2,7 +2,7 @@ export default function PrivacyPage() {
   return (
     <div className="prose prose-sm dark:prose-invert max-w-3xl mx-auto">
       <h1>Privacy Policy</h1>
-      <p className="text-muted-foreground">Last updated: February 2, 2026</p>
+      <p className="text-muted-foreground">Last updated: October 13, 2026</p>
 
       <h2>1. Information We Collect</h2>
       <p>
@@ -39,6 +39,12 @@ export default function PrivacyPage() {
       <p>
         We use cookies and similar technologies to maintain your session, remember your preferences, and
         improve your experience. You can control cookies through your browser settings.
+      </p>
+      <p>
+        We use PostHog to understand how the site is used: pages visited, clicks, and anonymous session
+        recordings in which all text and form inputs are masked. PostHog analytics sets no cookies, isn&apos;t
+        linked to your account, never receives your email or name, and is turned off on admin pages and when
+        your browser sends Do Not Track.
       </p>
 
       <h2>6. Your Rights</h2>

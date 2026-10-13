@@ -28,6 +28,7 @@ import { PlaceAutocomplete, type PlaceResult } from "@/components/place-autocomp
 import { GameDetailPanel } from "@/components/game-detail-panel";
 import { goalLabel, filterTeamsByGoal } from "@/lib/goal-utils";
 
+import { track } from "@/lib/analytics";
 const ItineraryMap = dynamic(() => import("@/components/itinerary-map"), {
   ssr: false,
   loading: () => (
@@ -526,6 +527,7 @@ export default function ItineraryBuilderPage() {
         return;
       }
       setAutoGenerateResult(data);
+      track("itinerary_generated", { goal: itinerary?.goal ?? null, travel_mode: itinerary?.travel_mode ?? null, regenerate: (itinerary?.games.length ?? 0) > 0 });
       await loadItinerary();
       await loadSuggestions();
     } catch (err) {
@@ -681,6 +683,7 @@ export default function ItineraryBuilderPage() {
                   title="Revoke share link"
                   onClick={async () => {
                     await fetch(`/api/itineraries/${id}/share`, { method: "DELETE" });
+                    track("share_link_revoked");
                     setShareToken(null);
                   }}
                 >
@@ -698,6 +701,7 @@ export default function ItineraryBuilderPage() {
                     if (res.ok) {
                       const data = await res.json();
                       setShareToken(data.share_token);
+                      track("share_link_created");
                       const url = `${window.location.origin}/share/${data.share_token}`;
                       await navigator.clipboard.writeText(url);
                       setShareCopied(true);

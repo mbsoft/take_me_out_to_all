@@ -5,6 +5,7 @@ import Link from "next/link";
 import AuthProvider from "@/lib/session-provider";
 import { Navbar } from "@/components/navbar";
 import { ThemeProvider } from "@/components/theme-provider";
+import { AnalyticsProvider } from "@/components/analytics-provider";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -40,6 +41,7 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
+        <AnalyticsProvider />
         <AuthProvider>
           <ThemeProvider>
             <div className="flex min-h-screen flex-col">
